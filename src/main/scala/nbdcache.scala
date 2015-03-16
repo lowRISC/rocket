@@ -914,7 +914,7 @@ class HellaCache extends L1HellaCacheModule {
   writeArb.io.in(1).valid := refill.valid && doRefill(refill.bits.payload)
   writeArb.io.in(1).bits := mshrs.io.mem_resp
   writeArb.io.in(1).bits.wmask := SInt(-1)
-  writeArb.io.in(1).bits.data := refill.bits.payload.data(encencTaggedRowBits-1,0)
+  writeArb.io.in(1).bits.data := refill.bits.payload.data(encTaggedRowBits-1,0)
   readArb.io.out.ready := !refill.valid || refill.ready // insert bubble if refill gets blocked
   readArb.io.out <> data.io.read
 
