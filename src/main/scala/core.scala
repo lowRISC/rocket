@@ -15,7 +15,7 @@ case object FastLoadWord extends Field[Boolean]
 case object FastLoadByte extends Field[Boolean]
 case object FastMulDiv extends Field[Boolean]
 case object CoreInstBits extends Field[Int]
-case object CoreDataBits extends Field[Int]
+//case object CoreDataBits extends Field[Int]  // move to uncore/tilelink.scala
 case object CoreDCacheReqTagBits extends Field[Int]
 
 abstract trait CoreParameters extends UsesParameters {

@@ -307,6 +307,21 @@ object RoCCDecode extends DecodeConstants
     CUSTOM3_RD_RS1_RS2->List(Y,    N,Y,N,N,N,Y,Y,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,      MT_X, N,N,Y,CSR.N,N,N,N,N,N,N))
 }
 
+object TagDecode extends DecodeConstants
+{
+  val table = Array(
+                //               jal                                                                           fence.i
+                //               | jalr                                                            mul_val     | sret
+                //         fp_val| | renx2                                                         | div_val   | | syscall
+                //         | rocc| | | renx1     s_alu1                          mem_val           | | wen     | | |
+                //   val   | | br| | | | s_alu2  |       imm    dw     alu       | mem_cmd mem_type| | | csr   | | | replay_next
+                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | fence
+                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | amo
+                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | |
+    LTAG->      List(xpr64,N,N,N,N,N,N,Y,A2_IMM, A1_RS1, IMM_I, DW_XPR,FN_ADD,   Y,M_XRD,    MT_T, N,N,Y,CSR.N,N,N,N,N,N,N),
+    STAG->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XWR,    MT_T, N,N,N,CSR.N,N,N,N,N,N,N))
+}
+
 class Control extends Module
 {
   val io = new Bundle {
@@ -320,6 +335,7 @@ class Control extends Module
   var decode_table = XDecode.table
   if (!params(BuildFPU).isEmpty) decode_table ++= FDecode.table
   if (!params(BuildRoCC).isEmpty) decode_table ++= RoCCDecode.table
+  decode_table ++= TagDecode.table
 
   val cs = DecodeLogic(io.dpath.inst, XDecode.decode_default, decode_table)
   
@@ -509,7 +525,7 @@ class Control extends Module
   val replay_ex = replay_ex_structural || replay_ex_other
   ctrl_killx := take_pc_mem_wb || replay_ex
   // detect 2-cycle load-use delay for LB/LH/SC
-  val ex_slow_bypass = ex_reg_mem_cmd === M_XSC || Vec(MT_B, MT_BU, MT_H, MT_HU).contains(ex_reg_mem_type)
+  val ex_slow_bypass = ex_reg_mem_cmd === M_XSC || Vec(MT_B, MT_BU, MT_H, MT_HU, MT_T).contains(ex_reg_mem_type)
 
   val (ex_xcpt, ex_cause) = checkExceptions(List(
     (ex_reg_xcpt_interrupt || ex_reg_xcpt, ex_reg_cause),
