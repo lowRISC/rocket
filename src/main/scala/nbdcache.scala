@@ -1008,10 +1008,11 @@ class HellaCache extends L1HellaCacheModule {
     cPC.io.req.read := s1_valid_masked && isRead(s1_req.cmd)
     cPC.io.req.read_miss := s2_valid && isRead(s2_req.cmd) && !isWrite(s1_req.cmd) && !(s2_valid_masked && s2_hit)
     cPC.io.req.write_back := mshrs.io.wb_req.fire()
+    cPC.io.pfc_reset := Bool(false)
     io.pfc <> cPC.io.reg
 
     // debug
-    when(params(DebugPrint)) {
+    if(params(DebugPrint)) {
       when(cPC.io.req.write) { printf("D$ write @%x\n", s1_req.addr) }
       when(cPC.io.req.write_miss) { printf("D$ write miss @%x\n", s2_req.addr) }
       when(cPC.io.req.read) { printf("D$ read @%x\n", s1_req.addr) }

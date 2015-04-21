@@ -124,12 +124,18 @@ class Frontend extends FrontendModule
   // performance counter
   if(params(UsePerformCounters)) {
     val cPC = Module(new CachePerformCounters)
-    cPC.io.req.read := io.cpu.resp.ready && (Reg(next=io.cpu.resp.valid) || io.cpu.resp.valid) && !Reg(next = io.cpu.req.valid)
+    cPC.io.req.read :=  Bool(false)
     cPC.io.req.read_miss := io.mem.acquire.fire()
     cPC.io.req.write := Bool(false)
     cPC.io.req.write_miss := Bool(false)
     cPC.io.req.write_back := Bool(false)
+    cPC.io.pfc_reset := Bool(false)
     io.pfc <> cPC.io.reg
+
+    // debug
+    if(params(DebugPrint)) {
+      when(cPC.io.req.read_miss) { printf("I$ read miss @%x\n", io.mem.acquire.bits.payload.addr << UInt(blockOffBits)) }
+    }
   }
 }
 

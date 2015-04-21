@@ -192,11 +192,6 @@ class Datapath extends Module
   io.ctrl.csr_replay := pcr.io.replay
   pcr.io.uarch_counters.foreach(_ := Bool(false))
 
-  if(params(UsePerformCounters)) {
-    pcr.io.L1I_pfc <> io.L1I_pfc
-    pcr.io.L1D_pfc <> io.L1D_pfc
-  }
-
   io.ptw.ptbr := pcr.io.ptbr
   io.ptw.invalidate := pcr.io.fatc
   io.ptw.sret := io.ctrl.sret
@@ -311,4 +306,24 @@ class Datapath extends Module
          wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
          wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
          wb_reg_inst, wb_reg_inst)
+
+  // performance counter
+  if(params(UsePerformCounters)) {
+    val cPC = Module(new CachePerformCounters)
+    cPC.io.req.read := io.ctrl.retire
+    cPC.io.req.read_miss := Bool(false)
+    cPC.io.req.write := Bool(false)
+    cPC.io.req.write_miss := Bool(false)
+    cPC.io.req.write_back := Bool(false)
+    cPC.io.pfc_reset := Bool(false)
+
+    pcr.io.L1I_pfc.read_cnt := cPC.io.reg.read_cnt
+    pcr.io.L1I_pfc.read_miss_cnt := io.L1I_pfc.read_miss_cnt
+    pcr.io.L1D_pfc <> io.L1D_pfc
+
+    // debug
+    if(params(DebugPrint)) {
+      when(cPC.io.req.read) { printf("I$ read @%x\n", wb_reg_pc) }
+    }
+  }
 }
