@@ -63,8 +63,15 @@ class CSRFileIO extends Bundle {
 
 class CSRFile extends Module
 {
-  val io = new CSRFileIO
- 
+  // conditional IO to support performance counter
+  class IOBundle extends CSRFileIO
+  class IOBundle_PFC extends IOBundle {
+    val L1I_pfc = new CachePerformCounterReg().flip
+    val L1D_pfc = new CachePerformCounterReg().flip
+  }
+
+  val io = new IOBundle_PFC
+
   val reg_epc = Reg(Bits(width = params(VAddrBits)+1))
   val reg_badvaddr = Reg(Bits(width = params(VAddrBits)))
   val reg_evec = Reg(Bits(width = params(VAddrBits)))
@@ -82,6 +89,25 @@ class CSRFile extends Module
   val reg_uarch_counters = io.uarch_counters.map(WideCounter(params(XprLen), _))
   val reg_fflags = Reg(UInt(width = 5))
   val reg_frm = Reg(UInt(width = 3))
+
+  // performance counters
+  val reg_L1I_read_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  val reg_L1I_read_miss_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  val reg_L1D_write_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  val reg_L1D_write_miss_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  val reg_L1D_read_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  val reg_L1D_read_miss_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  val reg_L1D_write_back_cnt = Reg(init=UInt(0, params(PerformCounterBits)))
+  if(params(UsePerformCounters)) {
+    reg_L1I_read_cnt := io.L1I_pfc.read_cnt
+    reg_L1I_read_miss_cnt := io.L1I_pfc.read_miss_cnt
+    reg_L1D_write_cnt := io.L1D_pfc.write_cnt
+    reg_L1D_write_miss_cnt := io.L1D_pfc.write_miss_cnt
+    reg_L1D_read_cnt := io.L1D_pfc.read_cnt
+    reg_L1D_read_miss_cnt := io.L1D_pfc.read_miss_cnt
+    reg_L1D_write_back_cnt := io.L1D_pfc.write_back_cnt
+  }
+  // end of performance counters
 
   val r_irq_timer = Reg(init=Bool(false))
   val r_irq_ipi = Reg(init=Bool(true))
@@ -186,7 +212,15 @@ class CSRFile extends Module
     CSRs.clear_ipi -> read_impl, // don't care
     CSRs.stats -> reg_stats,
     CSRs.tohost -> reg_tohost,
-    CSRs.fromhost -> reg_fromhost)
+    CSRs.fromhost -> reg_fromhost,
+    CSRs.L1I_read_cnt -> reg_L1I_read_cnt,
+    CSRs.L1I_read_miss_cnt -> reg_L1I_read_miss_cnt,
+    CSRs.L1D_write_cnt -> reg_L1D_write_cnt,
+    CSRs.L1D_write_miss_cnt -> reg_L1D_write_miss_cnt,
+    CSRs.L1D_read_cnt -> reg_L1D_read_cnt,
+    CSRs.L1D_read_miss_cnt -> reg_L1D_read_miss_cnt,
+    CSRs.L1D_write_back_cnt -> reg_L1D_write_back_cnt
+  )
 
   for (i <- 0 until reg_uarch_counters.size)
     read_mapping += (CSRs.uarch0 + i) -> reg_uarch_counters(i)

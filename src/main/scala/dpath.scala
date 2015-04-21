@@ -9,7 +9,8 @@ import uncore._
 
 class Datapath extends Module
 {
-  val io = new Bundle {
+  // conditional IO to support performance counter
+  class IOBundle extends Bundle {
     val host  = new HTIFIO
     val ctrl  = new CtrlDpathIO().flip
     val dmem = new HellaCacheIO
@@ -18,6 +19,12 @@ class Datapath extends Module
     val fpu = new DpathFPUIO
     val rocc = new RoCCInterface().flip
   }
+  class IOBundle_PFC extends IOBundle {
+    val L1I_pfc = new CachePerformCounterReg().flip
+    val L1D_pfc = new CachePerformCounterReg().flip
+  }
+
+  val io = new IOBundle_PFC
 
   // execute definitions
   val ex_reg_pc = Reg(UInt())
@@ -184,6 +191,11 @@ class Datapath extends Module
   pcr.io.pc := wb_reg_pc
   io.ctrl.csr_replay := pcr.io.replay
   pcr.io.uarch_counters.foreach(_ := Bool(false))
+
+  if(params(UsePerformCounters)) {
+    pcr.io.L1I_pfc <> io.L1I_pfc
+    pcr.io.L1D_pfc <> io.L1D_pfc
+  }
 
   io.ptw.ptbr := pcr.io.ptbr
   io.ptw.invalidate := pcr.io.fatc

@@ -15,7 +15,7 @@ case object FastLoadWord extends Field[Boolean]
 case object FastLoadByte extends Field[Boolean]
 case object FastMulDiv extends Field[Boolean]
 case object CoreInstBits extends Field[Int]
-//case object CoreDataBits extends Field[Int]  // move to uncore/tilelink.scala
+//case object CoreDataBits extends Field[Int]  // move to uncore/uncore.scala
 case object CoreDCacheReqTagBits extends Field[Int]
 
 abstract trait CoreParameters extends UsesParameters {
@@ -49,10 +49,22 @@ class RocketIO extends Bundle
 
 class Core extends Module with CoreParameters
 {
-  val io = new RocketIO
-   
+  // conditional IO to support performance counter
+  class IOBundle extends RocketIO
+  class IOBundle_PFC extends IOBundle {
+    val L1I_pfc = new CachePerformCounterReg().flip
+    val L1D_pfc = new CachePerformCounterReg().flip
+  }
+
+  val io = new IOBundle_PFC
+
   val ctrl = Module(new Control)
   val dpath = Module(new Datapath)
+
+  if(params(UsePerformCounters)) {
+    dpath.io.L1I_pfc <> io.L1I_pfc
+    dpath.io.L1D_pfc <> io.L1D_pfc
+  }
 
   //If so specified, build an FPU module and wire it in
   params(BuildFPU) 

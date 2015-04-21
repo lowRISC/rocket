@@ -38,6 +38,11 @@ class RocketTile(resetSignal: Bool = null) extends Tile(resetSignal) {
   core.io.imem <> icache.io.cpu
   core.io.ptw <> ptw.io.dpath
 
+  if(params(UsePerformCounters)) {
+    core.io.L1I_pfc <> icache.io.pfc
+    core.io.L1D_pfc <> dcache.io.pfc
+  }
+
   val memArb = Module(new UncachedTileLinkIOArbiterThatAppendsArbiterId(params(NTilePorts)))
   val dcPortId = 0
   memArb.io.in(dcPortId) <> dcache.io.mem

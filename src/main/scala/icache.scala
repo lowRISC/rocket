@@ -40,10 +40,17 @@ class CPUFrontendIO extends CoreBundle {
 
 class Frontend extends FrontendModule
 {
-  val io = new Bundle {
+  // conditional IO to support performance counter
+  class IOBundle extends Bundle {
     val cpu = new CPUFrontendIO().flip
     val mem = new UncachedTileLinkIO
   }
+
+  class IOBundle_PFC extends IOBundle {
+    val pfc = new CachePerformCounterReg
+  }
+
+  val io = new IOBundle_PFC
 
   val btb = Module(new BTB)
   val icache = Module(new ICache)
@@ -113,6 +120,17 @@ class Frontend extends FrontendModule
 
   io.cpu.btb_resp.valid := s2_btb_resp_valid
   io.cpu.btb_resp.bits := s2_btb_resp_bits
+
+  // performance counter
+  if(params(UsePerformCounters)) {
+    val cPC = Module(new CachePerformCounters)
+    cPC.io.req.read := io.cpu.resp.ready && (Reg(next=io.cpu.resp.valid) || io.cpu.resp.valid) && !Reg(next = io.cpu.req.valid)
+    cPC.io.req.read_miss := io.mem.acquire.fire()
+    cPC.io.req.write := Bool(false)
+    cPC.io.req.write_miss := Bool(false)
+    cPC.io.req.write_back := Bool(false)
+    io.pfc <> cPC.io.reg
+  }
 }
 
 class ICacheReq extends FrontendBundle {
@@ -287,4 +305,5 @@ class ICache extends FrontendModule
       when (refill_done) { state := s_ready }
     }
   }
+
 }

@@ -669,10 +669,17 @@ class AMOALU extends L1HellaCacheModule {
 }
 
 class HellaCache extends L1HellaCacheModule {
-  val io = new Bundle {
+  // conditional IO to support performance counter
+  class IOBundle extends Bundle {
     val cpu = (new HellaCacheIO).flip
     val mem = new TileLinkIO
   }
+
+  class IOBundle_PFC extends IOBundle {
+    val pfc = new CachePerformCounterReg
+  }
+
+  val io = new IOBundle_PFC
  
   require(params(LRSCCycles) >= 32) // ISA requires 16-insn LRSC sequences to succeed
   require(isPow2(nSets))
@@ -992,6 +999,32 @@ class HellaCache extends L1HellaCacheModule {
   io.cpu.replay_next.bits := s1_req.tag
 
   io.mem.finish <> mshrs.io.mem_finish
+
+  // performance counter
+  if(params(UsePerformCounters)) {
+    val cPC = Module(new CachePerformCounters)
+    cPC.io.req.write := s1_valid_masked && isWrite(s1_req.cmd)
+    cPC.io.req.write_miss := s2_valid && isWrite(s2_req.cmd) && !(s2_valid_masked && s2_hit)
+    cPC.io.req.read := s1_valid_masked && isRead(s1_req.cmd)
+    cPC.io.req.read_miss := s2_valid && isRead(s2_req.cmd) && !isWrite(s1_req.cmd) && !(s2_valid_masked && s2_hit)
+    cPC.io.req.write_back := mshrs.io.wb_req.fire()
+    io.pfc <> cPC.io.reg
+
+    // debug
+    when(params(DebugPrint)) {
+      when(cPC.io.req.write) { printf("D$ write @%x\n", s1_req.addr) }
+      when(cPC.io.req.write_miss) { printf("D$ write miss @%x\n", s2_req.addr) }
+      when(cPC.io.req.read) { printf("D$ read @%x\n", s1_req.addr) }
+      when(cPC.io.req.read_miss) { printf("D$ read miss @%x\n", s2_req.addr) }
+      when(cPC.io.req.write_back) { printf("D$ write back @%x\n", Cat(mshrs.io.wb_req.bits.tag, mshrs.io.wb_req.bits.idx).toUInt) }
+    }
+
+    // for pipeline to wait mshr
+    if(params(MatchSpike)) {
+      when(!mshrs.io.req.ready || mshrs.io.req.valid || s2_valid || s1_valid) { io.cpu.req.ready := Bool(false) }
+    }
+  }
+
 }
 
 // exposes a sane decoupled request interface

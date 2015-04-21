@@ -245,6 +245,20 @@ object CSRs {
   val reset = 0x51d
   val tohost = 0x51e
   val fromhost = 0x51f
+  // performance counters
+  val L1I_read_cnt = 0x5a0
+  val L1I_read_miss_cnt = 0x5a1
+  val L1D_write_cnt = 0x5a2
+  val L1D_write_miss_cnt = 0x5a3
+  val L1D_read_cnt = 0x5a4
+  val L1D_read_miss_cnt = 0x5a5
+  val L1D_write_back_cnt = 0x5a6
+  val Tag_write_cnt = 0x5c0
+  val Tag_write_miss_cnt = 0x5c1
+  val Tag_read_cnt = 0x5c2
+  val Tag_read_miss_cnt = 0x5c3
+  val Tag_write_back_cnt = 0x5c4
+  // end of performance counters
   val cycle = 0xc00
   val time = 0xc01
   val instret = 0xc02
@@ -293,6 +307,18 @@ object CSRs {
     res += reset
     res += tohost
     res += fromhost
+    res += L1I_read_cnt
+    res += L1I_read_miss_cnt
+    res += L1D_write_cnt
+    res += L1D_write_miss_cnt
+    res += L1D_read_cnt
+    res += L1D_read_miss_cnt
+    res += L1D_write_back_cnt
+    res += Tag_write_cnt
+    res += Tag_write_miss_cnt
+    res += Tag_read_cnt
+    res += Tag_read_miss_cnt
+    res += Tag_write_back_cnt
     res += cycle
     res += time
     res += instret
