@@ -197,7 +197,7 @@ class MSHR(id: Int) extends L1HellaCacheModule {
 
   val req_cmd = io.req_bits.cmd
   val req_idx = req.addr(untagBits-1,blockOffBits)
-  val idx_match = req_idx === io.req_bits.addr(untagBits-1,blockOffBits)
+  val idx_match = if(params(MatchSpike)) Bool(false) else req_idx === io.req_bits.addr(untagBits-1,blockOffBits)
   val sec_rdy = idx_match && (state === s_wb_req || state === s_wb_resp || state === s_meta_clear || (state === s_refill_req || state === s_refill_resp) && !co.needsTransactionOnSecondaryMiss(req_cmd, io.mem_req.bits))
 
   require(isPow2(refillCycles))
@@ -1017,7 +1017,7 @@ class HellaCache extends L1HellaCacheModule {
       when(cPC.io.req.write_miss) { printf("D$ write miss @%x\n", s2_req.addr) }
       when(cPC.io.req.read) { printf("D$ read @%x\n", s1_req.addr) }
       when(cPC.io.req.read_miss) { printf("D$ read miss @%x\n", s2_req.addr) }
-      when(cPC.io.req.write_back) { printf("D$ write back @%x\n", Cat(mshrs.io.wb_req.bits.tag, mshrs.io.wb_req.bits.idx).toUInt) }
+      when(cPC.io.req.write_back) { printf("D$ write back @%x\n", Cat(mshrs.io.wb_req.bits.tag, mshrs.io.wb_req.bits.idx, UInt(0,6)).toUInt) }
     }
 
     // for pipeline to wait mshr
