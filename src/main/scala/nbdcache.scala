@@ -1003,10 +1003,12 @@ class HellaCache extends L1HellaCacheModule {
   // performance counter
   if(params(UsePerformCounters)) {
     val cPC = Module(new CachePerformCounters)
-    cPC.io.req.write := s1_valid_masked && isWrite(s1_req.cmd)
-    cPC.io.req.write_miss := s2_valid && isWrite(s2_req.cmd) && !(s2_valid_masked && s2_hit)
-    cPC.io.req.read := s1_valid_masked && isRead(s1_req.cmd)
-    cPC.io.req.read_miss := s2_valid && isRead(s2_req.cmd) && !isWrite(s1_req.cmd) && !(s2_valid_masked && s2_hit)
+    val access_avlid = s1_valid_masked && s1_clk_en;
+    val hit_result_valid = s2_valid && Reg(next=s1_clk_en);
+    cPC.io.req.write := access_avlid && isWrite(s1_req.cmd)
+    cPC.io.req.write_miss := hit_result_valid && isWrite(s2_req.cmd) && !(s2_valid_masked && s2_hit)
+    cPC.io.req.read := access_avlid && isRead(s1_req.cmd)
+    cPC.io.req.read_miss := hit_result_valid && isRead(s2_req.cmd) && !isWrite(s2_req.cmd) && !(s2_valid_masked && s2_hit)
     cPC.io.req.write_back := mshrs.io.wb_req.fire()
     cPC.io.pfc_reset := Bool(false)
     io.pfc <> cPC.io.reg
