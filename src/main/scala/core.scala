@@ -6,21 +6,6 @@ import Chisel._
 import Util._
 import uncore._
 
-case object BuildFPU extends Field[Option[() => FPU]]
-case object FDivSqrt extends Field[Boolean]
-case object XLen extends Field[Int]
-case object NMultXpr extends Field[Int]
-case object FetchWidth extends Field[Int]
-case object RetireWidth extends Field[Int]
-case object UseVM extends Field[Boolean]
-case object FastLoadWord extends Field[Boolean]
-case object FastLoadByte extends Field[Boolean]
-case object FastMulDiv extends Field[Boolean]
-case object CoreInstBits extends Field[Int]
-case object CoreDataBits extends Field[Int]
-case object CoreDCacheReqTagBits extends Field[Int]
-case object NCustomMRWCSRs extends Field[Int]
-
 abstract trait CoreParameters extends UsesParameters {
   val xLen = params(XLen)
   val paddrBits = params(PAddrBits)
@@ -56,7 +41,6 @@ abstract class CoreModule extends Module with CoreParameters
 
 class RocketIO extends Bundle
 {
-  val host =  new HTIFIO
   val imem = new CPUFrontendIO
   val dmem = new HellaCacheIO
   val ptw = new DatapathPTWIO().flip
@@ -79,7 +63,6 @@ class Core extends Module with CoreParameters
     }
 
   ctrl.io.dpath <> dpath.io.ctrl
-  dpath.io.host <> io.host
 
   ctrl.io.imem <> io.imem
   dpath.io.imem <> io.imem

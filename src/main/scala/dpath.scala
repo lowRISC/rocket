@@ -10,7 +10,6 @@ import uncore._
 class Datapath extends CoreModule
 {
   val io = new Bundle {
-    val host  = new HTIFIO
     val ctrl  = new CtrlDpathIO().flip
     val dmem = new HellaCacheIO
     val ptw = new DatapathPTWIO().flip
@@ -167,7 +166,6 @@ class Datapath extends CoreModule
 
   // processor control regfile read
   val csr = Module(new CSRFile)
-  csr.io.host <> io.host
   csr.io <> io.ctrl
   csr.io <> io.fpu
   csr.io.rocc <> io.rocc
@@ -283,7 +281,7 @@ class Datapath extends CoreModule
   io.ctrl.wb_waddr := wb_reg_inst(11,7)
 
   printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
-         io.host.id, csr.io.time(32,0), io.ctrl.retire, wb_reg_pc,
+         UInt(0), csr.io.time(32,0), io.ctrl.retire, wb_reg_pc,
          Mux(wb_wen, wb_waddr, UInt(0)), wb_wdata, wb_wen,
          wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
          wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),

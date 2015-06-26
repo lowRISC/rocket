@@ -6,20 +6,14 @@ import Chisel._
 import uncore._
 import Util._
 
-case object CoreName extends Field[String]
-case object NDCachePorts extends Field[Int]
-case object NPTWPorts extends Field[Int]
-case object BuildRoCC extends Field[Option[() => RoCC]]
-
-abstract class Tile(resetSignal: Bool = null) extends Module(_reset = resetSignal) {
+abstract class Tile extends Module {
   val io = new Bundle {
     val cached = new ClientTileLinkIO
     val uncached = new ClientUncachedTileLinkIO
-    val host = new HTIFIO
   }
 }
 
-class RocketTile(resetSignal: Bool = null) extends Tile(resetSignal) {
+class RocketTile(id: Int = 0) extends Tile {
   val icache = Module(new Frontend, { case CacheName => "L1I"; case CoreName => "Rocket" })
   val dcache = Module(new HellaCache, { case CacheName => "L1D" })
   val ptw = Module(new PTW(params(NPTWPorts)))
@@ -34,7 +28,6 @@ class RocketTile(resetSignal: Bool = null) extends Tile(resetSignal) {
   ptw.io.requestor(0) <> icache.io.ptw
   ptw.io.requestor(1) <> dcache.io.ptw
 
-  core.io.host <> io.host
   core.io.imem <> icache.io.cpu
   core.io.ptw <> ptw.io.dpath
 

@@ -7,8 +7,6 @@ import Util._
 import uncore._
 import scala.math._
 
-case object NTLBEntries extends Field[Int]
-
 abstract trait TLBParameters extends CoreParameters {
   val entries = params(NTLBEntries)
   val camAddrBits = ceil(log(entries)/log(2)).toInt

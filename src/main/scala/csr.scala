@@ -68,7 +68,6 @@ object CSR
 }
 
 class CSRFileIO extends CoreBundle {
-  val host = new HTIFIO
   val rw = new Bundle {
     val addr = UInt(INPUT, 12)
     val cmd = Bits(INPUT, CSR.SZ)
@@ -120,8 +119,6 @@ class CSRFile extends CoreModule
   val reg_sptbr = Reg(UInt(width = paddrBits))
   val reg_wfi = Reg(init=Bool(false))
 
-  val reg_tohost = Reg(init=Bits(0, xLen))
-  val reg_fromhost = Reg(init=Bits(0, xLen))
   val reg_stats = Reg(init=Bool(false))
   val reg_time = WideCounter(xLen)
   val reg_instret = WideCounter(xLen, io.retire)
@@ -146,31 +143,10 @@ class CSRFile extends CoreModule
   checkInterrupt(PRV_S, reg_mie.ssip && reg_mip.ssip, 0)
   checkInterrupt(PRV_M, reg_mie.msip && reg_mip.msip, 0)
   checkInterrupt(PRV_S, reg_mie.stip && reg_mip.stip, 1)
-  checkInterrupt(PRV_M, reg_fromhost != 0, 2)
   checkInterrupt(PRV_M, irq_rocc, 3)
 
   val system_insn = io.rw.cmd === CSR.I
   val cpu_ren = io.rw.cmd != CSR.N && !system_insn
-
-  val host_pcr_req_valid = Reg(Bool()) // don't reset
-  val host_pcr_req_fire = host_pcr_req_valid && !cpu_ren
-  val host_pcr_rep_valid = Reg(Bool()) // don't reset
-  val host_pcr_bits = Reg(io.host.pcr_req.bits)
-  io.host.pcr_req.ready := !host_pcr_req_valid && !host_pcr_rep_valid
-  io.host.pcr_rep.valid := host_pcr_rep_valid
-  io.host.pcr_rep.bits := host_pcr_bits.data
-  when (io.host.pcr_req.fire()) {
-    host_pcr_req_valid := true
-    host_pcr_bits := io.host.pcr_req.bits
-  }
-  when (host_pcr_req_fire) {
-    host_pcr_req_valid := false
-    host_pcr_rep_valid := true
-    host_pcr_bits.data := io.rw.rdata
-  }
-  when (io.host.pcr_rep.fire()) { host_pcr_rep_valid := false }
-  
-  io.host.debug_stats_pcr := reg_stats // direct export up the hierarchy
 
   val read_mstatus = io.status.toBits
   val isa_string = "IMA" +
@@ -205,11 +181,9 @@ class CSRFile extends CoreModule
     CSRs.mbadaddr -> reg_mbadaddr.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
     CSRs.stimecmp -> reg_stimecmp,
-    CSRs.mhartid -> io.host.id,
-    CSRs.send_ipi -> io.host.id, /* don't care */
-    CSRs.stats -> reg_stats,
-    CSRs.mtohost -> reg_tohost,
-    CSRs.mfromhost -> reg_fromhost)
+    //CSRs.mhartid -> io.host.id,
+    //CSRs.send_ipi -> io.host.id, /* don't care */
+    CSRs.stats -> reg_stats)
 
   if (params(UseVM)) {
     val read_sstatus = new SStatus
@@ -251,7 +225,7 @@ class CSRFile extends CoreModule
     read_mapping += addr -> io.custom_mrw_csrs(i)
   }
 
-  val addr = Mux(cpu_ren, io.rw.addr, host_pcr_bits.addr)
+  val addr = io.rw.addr
   val decoded_addr = read_mapping map { case (k, v) => k -> (addr === k) }
 
   val addr_valid = decoded_addr.values.reduce(_||_)
@@ -260,11 +234,10 @@ class CSRFile extends CoreModule
   val priv_sufficient = reg_mstatus.prv >= csr_addr_priv
   val read_only = io.rw.addr(11,10).andR
   val cpu_wen = cpu_ren && io.rw.cmd != CSR.R && priv_sufficient
-  val wen = cpu_wen && !read_only || host_pcr_req_fire && host_pcr_bits.rw
-  val wdata = Mux(io.rw.cmd === CSR.W, io.rw.wdata,
-              Mux(io.rw.cmd === CSR.C, io.rw.rdata & ~io.rw.wdata,
+  val wen = cpu_wen && !read_only
+  val wdata = Mux(io.rw.cmd === CSR.C, io.rw.rdata & ~io.rw.wdata,
               Mux(io.rw.cmd === CSR.S, io.rw.rdata | io.rw.wdata,
-              host_pcr_bits.data)))
+              io.rw.wdata))
 
   val opcode = io.rw.addr
   val insn_call = !opcode(8) && !opcode(0) && system_insn
@@ -346,12 +319,8 @@ class CSRFile extends CoreModule
   }
 
   io.time := reg_time
-  io.host.ipi_req.valid := cpu_wen && decoded_addr(CSRs.send_ipi)
-  io.host.ipi_req.bits := io.rw.wdata
-  io.csr_replay := io.host.ipi_req.valid && !io.host.ipi_req.ready
+  io.csr_replay := Bool(false)
   io.csr_stall := reg_wfi
-
-  when (host_pcr_req_fire && !host_pcr_bits.rw && decoded_addr(CSRs.mtohost)) { reg_tohost := UInt(0) }
 
   io.rw.rdata := Mux1H(for ((k, v) <- read_mapping) yield decoded_addr(k) -> v)
 
@@ -412,8 +381,6 @@ class CSRFile extends CoreModule
     when (decoded_addr(CSRs.timew))    { reg_time := wdata }
     when (decoded_addr(CSRs.stimew))   { reg_time := wdata }
     when (decoded_addr(CSRs.stimecmp)) { reg_stimecmp := wdata(31,0); reg_mip.stip := false }
-    when (decoded_addr(CSRs.mfromhost)){ when (reg_fromhost === UInt(0) || !host_pcr_req_fire) { reg_fromhost := wdata } }
-    when (decoded_addr(CSRs.mtohost))  { when (reg_tohost === UInt(0) || host_pcr_req_fire) { reg_tohost := wdata } }
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
     if (params(UseVM)) {
       when (decoded_addr(CSRs.sstatus)) {
@@ -440,9 +407,6 @@ class CSRFile extends CoreModule
       when (decoded_addr(CSRs.stvec))    { reg_stvec := wdata(vaddrBits-1,0).toSInt & SInt(-coreInstBytes) }
     }
   }
-
-  io.host.ipi_rep.ready := true
-  when (io.host.ipi_rep.valid) { reg_mip.msip := true }
 
   when(this.reset) {
     reg_mstatus.zero1 := 0

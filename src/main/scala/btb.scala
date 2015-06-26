@@ -7,9 +7,6 @@ import Util._
 import Node._
 import uncore._
 
-case object NBTBEntries extends Field[Int]
-case object NRAS extends Field[Int]
-
 abstract trait BTBParameters extends CoreParameters {
   val matchBits = params(PgIdxBits)
   val entries = params(NBTBEntries)

@@ -6,14 +6,8 @@ import Chisel._
 import uncore._
 import Util._
 
-case object WordBits extends Field[Int]
-case object StoreDataQueueDepth extends Field[Int]
-case object ReplayQueueDepth extends Field[Int]
-case object NMSHRs extends Field[Int]
-case object LRSCCycles extends Field[Int]
-
 abstract trait L1HellaCacheParameters extends L1CacheParameters {
-  val wordBits = params(WordBits)
+  val wordBits = params(XLen)
   val wordBytes = wordBits/8
   val wordOffBits = log2Up(wordBytes)
   val idxMSB = untagBits-1
