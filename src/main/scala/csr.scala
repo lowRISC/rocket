@@ -225,6 +225,13 @@ class CSRFile extends CoreModule
     read_mapping += addr -> io.custom_mrw_csrs(i)
   }
 
+  // IO space
+  val ioaddr = Module(new IOSpaceConsts)
+  read_mapping += CSRs.miobase0 -> ioaddr.io.base(0)
+  read_mapping += CSRs.miobase1 -> ioaddr.io.base(1)
+  read_mapping += CSRs.miomask0 -> ioaddr.io.mask(0)
+  read_mapping += CSRs.miomask1 -> ioaddr.io.mask(1)  
+
   val addr = io.rw.addr
   val decoded_addr = read_mapping map { case (k, v) => k -> (addr === k) }
 
