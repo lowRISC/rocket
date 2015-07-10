@@ -10,6 +10,7 @@ abstract class Tile extends Module {
   val io = new Bundle {
     val cached = new ClientTileLinkIO
     val uncached = new ClientUncachedTileLinkIO
+    val io = new ClientUncachedTileLinkIO
   }
 }
 
@@ -30,6 +31,8 @@ class RocketTile(id: Int = 0) extends Tile {
 
   core.io.imem <> icache.io.cpu
   core.io.ptw <> ptw.io.dpath
+
+  core.io.io <> dcache.io.io
 
   // Connect the caches and ROCC to the outer memory system
   io.cached <> dcache.io.mem
