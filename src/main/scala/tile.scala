@@ -32,7 +32,7 @@ class RocketTile(id: Int = 0) extends Tile {
   core.io.imem <> icache.io.cpu
   core.io.ptw <> ptw.io.dpath
 
-  core.io.io <> dcache.io.io
+  io.io <> dcache.io.io
 
   // Connect the caches and ROCC to the outer memory system
   io.cached <> dcache.io.mem

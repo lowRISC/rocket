@@ -378,11 +378,11 @@ class MSHRFile extends L1HellaCacheModule {
 /** IO miss handler */
 class IOMSHR extends L1HellaCacheModule {
   val io = new Bundle {
-    val req = Decoupled(new MSHRReq)            // miss request
+    val req = Decoupled(new MSHRReq).flip       // miss request
     val replay = Decoupled(new Replay)          // replay request for load IO
     val outer_req = Decoupled(new Acquire)      // uncached acquire to the outer IO TileLink controller
     val outer_gnt = Decoupled(new Grant).flip   // grant from the outer IO TileLink controller
-    val io_data = Bits(width = coreDataBits)    // write out the data read back
+    val io_data = Bits(OUTPUT,coreDataBits)     // write out the data read back
     val fence_rdy = Bool(OUTPUT)
   }
 
@@ -391,56 +391,26 @@ class IOMSHR extends L1HellaCacheModule {
   val req = Reg(new MSHRReq)
   val io_data = Reg(Bits(width = coreDataBits))
 
-  def getMask(rtpy:UInt, byte_addr:UInt):UInt = {
-    MuxLookup(rtpy, UInt(0), Array(
-      MT_B   -> UInt("b1") << byte_addr,
-      MT_BU  -> UInt("b1") << byte_addr,
-      MT_H   -> UInt("b11") << byte_addr,
-      MT_HU  -> UInt("b11") << byte_addr,
-      MT_W   -> UInt("b1111") << byte_addr,
-      MT_WU  -> UInt("b1111") << byte_addr,
-      MT_D   -> UInt("b11111111") << byte_addr))
-  }
-
-  def getIOAcquire(req:MSHRReq) : Acquire = {
-    val addr_block = req.addr >> blockOffBits
-    val addr_beat = req.addr(blockOffBits,log2Up(outerDataBits/8))
-    val addr_byte = req.addr(log2Up(outerDataBits/8)-1,0)
-    val storegen = new StoreGen(req.typ, req.addr, req.data)
-    val acq = new Acquire
-    require(req.cmd === M_XRD || req.cmd === M_XWR)
-    when(req.cmd === M_XRD) {
-      acq := Get(
-        client_xact_id = UInt(0),
-        addr_block = addr_block,
-        addr_beat = addr_beat,
-        addr_byte = addr_byte,
-        operand_size = req.typ,
-        alloc = Bool(false)
-      )
-    }.otherwise{
-      acq := Put(
-        client_xact_id = UInt(0),
-        addr_block = addr_block,
-        addr_beat = addr_beat,
-        data = storegen.data,
-        wmask = storegen.mask
-      )
-    }
-    acq
-  }
+  // assembly the Acquire
+  val addr_block = req.addr >> blockOffBits
+  val addr_beat = req.addr(blockOffBits,log2Up(outerDataBits/8))
+  val addr_byte = req.addr(log2Up(outerDataBits/8)-1,0)
+  val storegen = new StoreGen(req.typ, req.addr, req.data)
+  val acq = Mux(req.cmd === M_XWR,
+    Put(UInt(0), addr_block, addr_beat, UInt(storegen.data), storegen.mask),
+    Get(UInt(0), addr_block, addr_beat, addr_byte, req.typ, Bool(false)))
 
   // miss request
   io.req.ready := state == s_invalid
   io.fence_rdy := state == s_invalid
 
   // the outer Acquire channel
-  io.outer_req.bits := getIOAcquire(req)
+  io.outer_req.bits := acq
   io.outer_req.valid := state === s_io_req
 
   // buf the grant message
   when(state === s_io_resp && io.outer_gnt.fire() && req.cmd === M_XRD) {
-    io_data := io.outer_resp.data
+    io_data := io.outer_gnt.bits.data
   }
 
   // replay
@@ -453,7 +423,7 @@ class IOMSHR extends L1HellaCacheModule {
     req := io.req.bits
   }
   when(state === s_io_req) {
-    when(io.outer_req.fire()) { state := io_resp }
+    when(io.outer_req.fire()) { state := s_io_resp }
   }
   when(state === s_io_resp) {
     when(io.outer_gnt.fire()) {
@@ -699,7 +669,7 @@ class HellaCache extends L1HellaCacheModule {
   val s1_replay = Reg(init=Bool(false))
   val s1_io_replay = Reg(init=Bool(false))
   val s1_clk_en = Reg(Bool())
-  val s1_io_data = Bits(iomshr.io.io_data.clone)
+  val s1_io_data = iomshr.io.io_data
 
   val s2_valid = Reg(next=s1_valid_masked, init=Bool(false))
   val s2_req = Reg(io.cpu.req.bits.clone)
@@ -739,9 +709,8 @@ class HellaCache extends L1HellaCacheModule {
     s1_req.addr := Cat(prober.io.meta_read.bits.tag, prober.io.meta_read.bits.idx) << blockOffBits
     s1_req.phys := Bool(true)
   }
-  when (iomshrs.io.replay.valid) {
-    s1_req := iomshrs.io.replay.bits
-    s1_io_data := iomshr.io.io_data
+  when (iomshr.io.replay.valid) {
+    s1_req := iomshr.io.replay.bits
   }
   when (mshrs.io.replay.valid) {
     s1_req := mshrs.io.replay.bits
@@ -983,7 +952,7 @@ class HellaCache extends L1HellaCacheModule {
   val s2_data_word_prebypass = s2_data_uncorrected >> Cat(s2_word_idx, Bits(0,log2Up(coreDataBits)))
   val s2_data_word = Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass)
   val loadgen_data = Mux(s2_io_replay, s2_io_data, s2_data_word)
-  val loadgen = new LoadGen(s2_req.typ, s2_req.addr, load_gen_data, s2_sc)
+  val loadgen = new LoadGen(s2_req.typ, s2_req.addr, loadgen_data, s2_sc)
 
   amoalu.io := s2_req
   amoalu.io.lhs := s2_data_word
