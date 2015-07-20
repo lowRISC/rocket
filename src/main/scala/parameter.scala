@@ -4,7 +4,6 @@ package rocket
 import Chisel._
 
 //Tile Constants
-case object NTiles extends Field[Int]
 case object CoreName extends Field[String] // only useful when Hwacha is used
 case object NDCachePorts extends Field[Int]
 case object NPTWPorts extends Field[Int]
