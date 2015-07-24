@@ -412,6 +412,7 @@ class IOMSHR extends L1HellaCacheModule {
   when(state === s_io_resp && io.outer_gnt.fire() && req.cmd === M_XRD) {
     io_data := io.outer_gnt.bits.data
   }
+  io.io_data := io_data
 
   // replay
   io.replay.valid := state === s_replay
