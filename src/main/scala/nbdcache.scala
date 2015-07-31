@@ -401,8 +401,8 @@ class IOMSHR extends L1HellaCacheModule {
     Get(UInt(0), addr_block, addr_beat, addr_byte, req.typ, Bool(false)))
 
   // miss request
-  io.req.ready := state == s_invalid
-  io.fence_rdy := state == s_invalid
+  io.req.ready := state === s_invalid
+  io.fence_rdy := state === s_invalid
 
   // the outer Acquire channel
   io.outer_req.bits := acq
