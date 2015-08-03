@@ -7,7 +7,7 @@ import Instructions._
 import Util._
 import uncore._
 
-class Datapath extends CoreModule
+class Datapath(id:Int) extends CoreModule
 {
   val io = new Bundle {
     val ctrl  = new CtrlDpathIO().flip
@@ -165,7 +165,7 @@ class Datapath extends CoreModule
   require(params(CoreDCacheReqTagBits) >= 6)
 
   // processor control regfile read
-  val csr = Module(new CSRFile)
+  val csr = Module(new CSRFile(id))
   csr.io <> io.ctrl
   csr.io <> io.fpu
   csr.io.rocc <> io.rocc

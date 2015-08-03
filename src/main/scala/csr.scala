@@ -98,7 +98,7 @@ class CSRFileIO extends CoreBundle {
   val interrupt_cause = UInt(OUTPUT, xLen)
 }
 
-class CSRFile extends CoreModule
+class CSRFile(id:Int) extends CoreModule
 {
   val io = new CSRFileIO
 
@@ -181,7 +181,7 @@ class CSRFile extends CoreModule
     CSRs.mbadaddr -> reg_mbadaddr.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
     CSRs.stimecmp -> reg_stimecmp,
-    //CSRs.mhartid -> io.host.id,
+    CSRs.mhartid -> UInt(id),
     //CSRs.send_ipi -> io.host.id, /* don't care */
     CSRs.stats -> reg_stats)
 

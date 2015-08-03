@@ -47,12 +47,12 @@ class RocketIO extends Bundle
   val rocc = new RoCCInterface().flip
 }
 
-class Core extends Module with CoreParameters
+class Core (id:Int) extends Module with CoreParameters
 {
   val io = new RocketIO
    
   val ctrl = Module(new Control)
-  val dpath = Module(new Datapath)
+  val dpath = Module(new Datapath(id))
 
   //If so specified, build an FPU module and wire it in
   params(BuildFPU) 
