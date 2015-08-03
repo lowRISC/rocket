@@ -408,6 +408,9 @@ class IOMSHR extends L1HellaCacheModule {
   io.outer_req.bits := acq
   io.outer_req.valid := state === s_io_req
 
+  // the outer Grant channel
+  io.outer_gnt.ready := state === s_io_resp
+
   // buf the grant message
   when(state === s_io_resp && io.outer_gnt.fire() && req.cmd === M_XRD) {
     io_data := io.outer_gnt.bits.data
@@ -892,7 +895,8 @@ class HellaCache extends L1HellaCacheModule {
   // IO replay
   metaReadArb.io.in(2).valid := iomshr.io.replay.valid
   metaReadArb.io.in(2).bits.idx := iomshr.io.replay.bits.addr >> blockOffBits
-  s1_io_replay := iomshr.io.replay.valid && metaReadArb.io.in(2).ready
+  s1_io_replay := iomshr.io.replay.fire()
+  iomshr.io.replay.ready := metaReadArb.io.in(2).ready
 
   // probes and releases
   val releaseArb = Module(new LockingArbiter(new Release, 2, outerDataBeats, (r: Release) => r.hasMultibeatData()))
