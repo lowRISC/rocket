@@ -969,8 +969,9 @@ class HellaCache extends L1HellaCacheModule {
   val s2_nack_hit = RegEnable(s1_nack, s1_valid || s1_replay)
   when (s2_nack_hit) { mshrs.io.req.valid := Bool(false) }
   val s2_nack_victim = s2_hit && mshrs.io.secondary_miss
-  val s2_nack_miss = !s2_hit && !mshrs.io.req.ready
-  val s2_nack = s2_nack_hit || s2_nack_victim || s2_nack_miss
+  val s2_nack_miss = !ioaddr.io.isIO && !s2_hit && !mshrs.io.req.ready
+  val s2_nack_io_miss = ioaddr.io.isIO && !iomshr.io.req.ready
+  val s2_nack = s2_nack_hit || s2_nack_victim || s2_nack_miss || s2_nack_io_miss
   s2_valid_masked := s2_valid && !s2_nack
 
   val s2_recycle_ecc = (s2_valid || s2_replay) && s2_hit && s2_data_correctable
@@ -989,7 +990,7 @@ class HellaCache extends L1HellaCacheModule {
   io.cpu.resp.bits.nack := s2_valid && s2_nack
   io.cpu.resp.bits := s2_req
   io.cpu.resp.bits.has_data := isRead(s2_req.cmd) || s2_sc
-  io.cpu.resp.bits.replay := s2_replay
+  io.cpu.resp.bits.replay := s2_replay || s2_io_replay
   io.cpu.resp.bits.data := loadgen.word
   io.cpu.resp.bits.data_subword := loadgen.byte | s2_sc_fail
   io.cpu.resp.bits.store_data := s2_req.data
