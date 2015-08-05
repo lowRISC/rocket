@@ -395,9 +395,18 @@ class IOMSHR extends L1HellaCacheModule {
   val addr_block = req.addr >> blockOffBits
   val addr_beat = req.addr(blockOffBits,log2Up(outerDataBits/8))
   val addr_byte = req.addr(log2Up(outerDataBits/8)-1,0)
+
+  // form the write data and write mask
   val storegen = new StoreGen(req.typ, req.addr, req.data)
+  val outerDWords = outerDataBits/64
+  require(outerDWords > 0)
+  val acq_wdata = (Vec.fill(outerDWords){storegen.data}).toBits
+  val acq_wmask = Vec((0 until outerDWords).map(i => 
+    Mux(UInt(i)===(addr_byte >> UInt(3)), storegen.mask(7,0), UInt("b00000000"))
+    )).toBits
+
   val acq = Mux(req.cmd === M_XWR,
-    Put(UInt(0), addr_block, addr_beat, UInt(storegen.data), storegen.mask),
+    Put(UInt(0), addr_block, addr_beat, acq_wdata, acq_wmask),
     Get(UInt(0), addr_block, addr_beat, addr_byte, req.typ, Bool(false)))
 
   // miss request
