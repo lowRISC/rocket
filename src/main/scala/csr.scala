@@ -5,7 +5,6 @@ package rocket
 import Chisel._
 import Util._
 import Instructions._
-import Node._
 import uncore._
 import scala.math._
 
@@ -58,7 +57,7 @@ object CSR
 {
   // commands
   val SZ = 3
-  val X = UInt.DC(SZ)
+  val X = BitPat.DC(SZ)
   val N = UInt(0,SZ)
   val W = UInt(1,SZ)
   val S = UInt(2,SZ)
@@ -115,12 +114,13 @@ class CSRFile(id:Int) extends CoreModule
   val reg_sbadaddr = Reg(UInt(width = vaddrBitsExtended))
   val reg_sscratch = Reg(Bits(width = xLen))
   val reg_stvec = Reg(UInt(width = vaddrBits))
-  val reg_stimecmp = Reg(Bits(width = 32))
+  val reg_mtimecmp = Reg(Bits(width = xLen))
   val reg_sptbr = Reg(UInt(width = paddrBits))
   val reg_wfi = Reg(init=Bool(false))
 
   val reg_stats = Reg(init=Bool(false))
-  val reg_time = WideCounter(xLen)
+  val reg_time = Reg(UInt(width = xLen))
+  val reg_cycle = WideCounter(xLen)
   val reg_instret = WideCounter(xLen, io.retire)
   val reg_uarch_counters = io.uarch_counters.map(WideCounter(xLen, _))
   val reg_fflags = Reg(UInt(width = 5))
@@ -130,7 +130,7 @@ class CSRFile(id:Int) extends CoreModule
 
   io.interrupt_cause := 0
   io.interrupt := io.interrupt_cause(xLen-1)
-  val some_interrupt_pending = Bool(); some_interrupt_pending := false
+  val some_interrupt_pending = Wire(init=Bool(false))
   def checkInterrupt(max_priv: UInt, cond: Bool, num: Int) = {
     when (cond && (reg_mstatus.prv < max_priv || reg_mstatus.prv === max_priv && reg_mstatus.ie)) {
       io.interrupt_cause := UInt((BigInt(1) << (xLen-1)) + num)
@@ -143,6 +143,8 @@ class CSRFile(id:Int) extends CoreModule
   checkInterrupt(PRV_S, reg_mie.ssip && reg_mip.ssip, 0)
   checkInterrupt(PRV_M, reg_mie.msip && reg_mip.msip, 0)
   checkInterrupt(PRV_S, reg_mie.stip && reg_mip.stip, 1)
+  checkInterrupt(PRV_M, reg_mie.mtip && reg_mip.mtip, 1)
+  checkInterrupt(PRV_M, reg_fromhost != 0, 2)
   checkInterrupt(PRV_M, irq_rocc, 3)
 
   val system_insn = io.rw.cmd === CSR.I
@@ -161,18 +163,20 @@ class CSRFile(id:Int) extends CoreModule
     CSRs.fflags -> (if (!params(BuildFPU).isEmpty) reg_fflags else UInt(0)),
     CSRs.frm -> (if (!params(BuildFPU).isEmpty) reg_frm else UInt(0)),
     CSRs.fcsr -> (if (!params(BuildFPU).isEmpty) Cat(reg_frm, reg_fflags) else UInt(0)),
-    CSRs.cycle -> reg_time,
-    CSRs.cyclew -> reg_time,
+    CSRs.cycle -> reg_cycle,
+    CSRs.cyclew -> reg_cycle,
     CSRs.instret -> reg_instret,
     CSRs.instretw -> reg_instret,
     CSRs.time -> reg_time,
     CSRs.timew -> reg_time,
     CSRs.stime -> reg_time,
     CSRs.stimew -> reg_time,
+    CSRs.mtime -> reg_time,
     CSRs.mcpuid -> UInt(cpuid),
     CSRs.mimpid -> UInt(impid),
     CSRs.mstatus -> read_mstatus,
     CSRs.mtdeleg -> UInt(0),
+    CSRs.mreset -> UInt(0),
     CSRs.mtvec -> UInt(MTVEC),
     CSRs.mip -> reg_mip.toBits,
     CSRs.mie -> reg_mie.toBits,
@@ -180,26 +184,23 @@ class CSRFile(id:Int) extends CoreModule
     CSRs.mepc -> reg_mepc.sextTo(xLen),
     CSRs.mbadaddr -> reg_mbadaddr.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
-    CSRs.stimecmp -> reg_stimecmp,
+    CSRs.mtimecmp -> reg_mtimecmp,
     CSRs.mhartid -> UInt(id),
     //CSRs.send_ipi -> io.host.id, /* don't care */
     CSRs.stats -> reg_stats)
 
   if (params(UseVM)) {
-    val read_sstatus = new SStatus
-    read_sstatus := new SStatus().fromBits(read_mstatus) // sstatus mostly overlaps mstatus
+    val read_sstatus = Wire(init=new SStatus().fromBits(read_mstatus))
     read_sstatus.zero1 := 0
     read_sstatus.zero2 := 0
     read_sstatus.zero3 := 0
     read_sstatus.zero4 := 0
 
-    val read_sip = new MIP
-    read_sip := new MIP().fromBits(0)
+    val read_sip = Wire(init=new MIP().fromBits(0))
     read_sip.ssip := reg_mip.ssip
     read_sip.stip := reg_mip.stip
 
-    val read_sie = new MIP
-    read_sie := new MIP().fromBits(0)
+    val read_sie = Wire(init=new MIP().fromBits(0))
     read_sie.ssip := reg_mie.ssip
     read_sie.stip := reg_mie.stip
 
@@ -271,9 +272,9 @@ class CSRFile(id:Int) extends CoreModule
   io.csr_xcpt := csr_xcpt
   io.eret := insn_ret || insn_redirect_trap
   io.status := reg_mstatus
-  io.status.fs := reg_mstatus.fs.orR.toSInt // either off or dirty (no clean/initial support yet)
-  io.status.xs := reg_mstatus.xs.orR.toSInt // either off or dirty (no clean/initial support yet)
-  io.status.sd := reg_mstatus.xs.orR || reg_mstatus.fs.orR
+  io.status.fs := Fill(2, reg_mstatus.fs.orR) // either off or dirty (no clean/initial support yet)
+  io.status.xs := Fill(2, reg_mstatus.xs.orR) // either off or dirty (no clean/initial support yet)
+  io.status.sd := io.status.fs.andR || io.status.xs.andR
   if (xLen == 32)
     io.status.sd_rv32 := io.status.sd
 
@@ -286,7 +287,7 @@ class CSRFile(id:Int) extends CoreModule
     reg_mstatus.prv2 := reg_mstatus.prv1
     reg_mstatus.ie2 := reg_mstatus.ie1
 
-    reg_mepc := io.pc & SInt(-coreInstBytes)
+    reg_mepc := ~(~io.pc | (coreInstBytes-1))
     reg_mcause := io.cause
     when (csr_xcpt) {
       reg_mcause := Causes.illegal_instruction
@@ -321,11 +322,11 @@ class CSRFile(id:Int) extends CoreModule
 
   assert(PopCount(insn_ret :: insn_redirect_trap :: io.exception :: csr_xcpt :: io.csr_replay :: Nil) <= 1, "these conditions must be mutually exclusive")
 
-  when (reg_time(reg_stimecmp.getWidth-1,0) === reg_stimecmp) {
-    reg_mip.stip := true
+  when (reg_time >= reg_mtimecmp) {
+    reg_mip.mtip := true
   }
 
-  io.time := reg_time
+  io.time := reg_cycle
   io.csr_replay := Bool(false)
   io.csr_stall := reg_wfi
 
@@ -363,8 +364,10 @@ class CSRFile(id:Int) extends CoreModule
     }
     when (decoded_addr(CSRs.mip)) {
       val new_mip = new MIP().fromBits(wdata)
-      if (params(UseVM))
+      if (params(UseVM)) {
         reg_mip.ssip := new_mip.ssip
+        reg_mip.stip := new_mip.stip
+      }
       reg_mip.msip := new_mip.msip
     }
     when (decoded_addr(CSRs.mie)) {
@@ -379,22 +382,20 @@ class CSRFile(id:Int) extends CoreModule
     when (decoded_addr(CSRs.fflags))   { reg_fflags := wdata }
     when (decoded_addr(CSRs.frm))      { reg_frm := wdata }
     when (decoded_addr(CSRs.fcsr))     { reg_fflags := wdata; reg_frm := wdata >> reg_fflags.getWidth }
-    when (decoded_addr(CSRs.mepc))     { reg_mepc := wdata(vaddrBitsExtended-1,0).toSInt & SInt(-coreInstBytes) }
+    when (decoded_addr(CSRs.mepc))     { reg_mepc := ~(~wdata | (coreInstBytes-1)) }
     when (decoded_addr(CSRs.mscratch)) { reg_mscratch := wdata }
     when (decoded_addr(CSRs.mcause))   { reg_mcause := wdata & UInt((BigInt(1) << (xLen-1)) + 31) /* only implement 5 LSBs and MSB */ }
     when (decoded_addr(CSRs.mbadaddr)) { reg_mbadaddr := wdata(vaddrBitsExtended-1,0) }
-    when (decoded_addr(CSRs.cyclew))   { reg_time := wdata }
     when (decoded_addr(CSRs.instretw)) { reg_instret := wdata }
-    when (decoded_addr(CSRs.timew))    { reg_time := wdata }
-    when (decoded_addr(CSRs.stimew))   { reg_time := wdata }
-    when (decoded_addr(CSRs.stimecmp)) { reg_stimecmp := wdata(31,0); reg_mip.stip := false }
+    when (decoded_addr(CSRs.mtimecmp)) { reg_mtimecmp := wdata; reg_mip.mtip := false }
+    when (decoded_addr(CSRs.mreset) /* XXX used by HTIF to write mtime */) { reg_time := wdata }
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
     if (params(UseVM)) {
       when (decoded_addr(CSRs.sstatus)) {
         val new_sstatus = new SStatus().fromBits(wdata)
         reg_mstatus.ie := new_sstatus.ie
         reg_mstatus.ie1 := new_sstatus.pie
-        reg_mstatus.prv1 := Mux(new_sstatus.ps, PRV_S, PRV_U)
+        reg_mstatus.prv1 := Mux[UInt](new_sstatus.ps, PRV_S, PRV_U)
         reg_mstatus.mprv := new_sstatus.mprv
         reg_mstatus.fs := new_sstatus.fs // even without an FPU
         if (!params(BuildRoCC).isEmpty) reg_mstatus.xs := new_sstatus.xs
@@ -410,8 +411,8 @@ class CSRFile(id:Int) extends CoreModule
       }
       when (decoded_addr(CSRs.sscratch)) { reg_sscratch := wdata }
       when (decoded_addr(CSRs.sptbr))    { reg_sptbr := Cat(wdata(paddrBits-1, pgIdxBits), Bits(0, pgIdxBits)) }
-      when (decoded_addr(CSRs.sepc))     { reg_sepc := wdata(vaddrBitsExtended-1,0).toSInt & SInt(-coreInstBytes) }
-      when (decoded_addr(CSRs.stvec))    { reg_stvec := wdata(vaddrBits-1,0).toSInt & SInt(-coreInstBytes) }
+      when (decoded_addr(CSRs.sepc))     { reg_sepc := ~(~wdata | (coreInstBytes-1)) }
+      when (decoded_addr(CSRs.stvec))    { reg_stvec := ~(~wdata | (coreInstBytes-1)) }
     }
   }
 
