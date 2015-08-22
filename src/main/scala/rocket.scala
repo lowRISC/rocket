@@ -354,7 +354,7 @@ class Rocket (id:Int) extends CoreModule
   csr.io.exception := wb_reg_xcpt
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
-  io.host <> csr.io.host
+  //io.host <> csr.io.host
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc
@@ -477,7 +477,7 @@ class Rocket (id:Int) extends CoreModule
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
   printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
-         io.host.id, csr.io.time(32,0), wb_valid, wb_reg_pc,
+         UInt(id), csr.io.time(32,0), wb_valid, wb_reg_pc,
          Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
          wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
          wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),

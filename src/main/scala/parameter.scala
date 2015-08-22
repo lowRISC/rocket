@@ -22,3 +22,11 @@ case object FDivSqrt extends Field[Boolean]
 case object CoreInstBits extends Field[Int]
 case object CoreDCacheReqTagBits extends Field[Int]
 case object NCustomMRWCSRs extends Field[Int]
+
+// L1 TLB
+case object NTLBEntries extends Field[Int]
+
+// L1 I$
+case object NBTBEntries extends Field[Int]
+case object NRAS extends Field[Int]
+

@@ -144,7 +144,7 @@ class CSRFile(id:Int) extends CoreModule
   checkInterrupt(PRV_M, reg_mie.msip && reg_mip.msip, 0)
   checkInterrupt(PRV_S, reg_mie.stip && reg_mip.stip, 1)
   checkInterrupt(PRV_M, reg_mie.mtip && reg_mip.mtip, 1)
-  checkInterrupt(PRV_M, reg_fromhost != 0, 2)
+  //checkInterrupt(PRV_M, reg_fromhost != 0, 2)
   checkInterrupt(PRV_M, irq_rocc, 3)
 
   val system_insn = io.rw.cmd === CSR.I
