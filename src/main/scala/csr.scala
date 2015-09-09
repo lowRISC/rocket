@@ -67,6 +67,7 @@ object CSR
 }
 
 class CSRFileIO extends CoreBundle {
+  val host = new HostIO
   val rw = new Bundle {
     val addr = UInt(INPUT, 12)
     val cmd = Bits(INPUT, CSR.SZ)
@@ -118,6 +119,8 @@ class CSRFile(id:Int) extends CoreModule
   val reg_sptbr = Reg(UInt(width = paddrBits))
   val reg_wfi = Reg(init=Bool(false))
 
+  val reg_tohost = Reg(init=Bits(0, xLen))
+  val reg_fromhost = Reg(init=Bits(0, xLen))
   val reg_stats = Reg(init=Bool(false))
   val reg_time = Reg(UInt(width = xLen))
   val reg_cycle = WideCounter(xLen)
@@ -144,7 +147,7 @@ class CSRFile(id:Int) extends CoreModule
   checkInterrupt(PRV_M, reg_mie.msip && reg_mip.msip, 0)
   checkInterrupt(PRV_S, reg_mie.stip && reg_mip.stip, 1)
   checkInterrupt(PRV_M, reg_mie.mtip && reg_mip.mtip, 1)
-  //checkInterrupt(PRV_M, reg_fromhost != 0, 2)
+  checkInterrupt(PRV_M, reg_fromhost != 0, 2)
   checkInterrupt(PRV_M, irq_rocc, 3)
 
   val system_insn = io.rw.cmd === CSR.I
@@ -187,7 +190,9 @@ class CSRFile(id:Int) extends CoreModule
     CSRs.mtimecmp -> reg_mtimecmp,
     CSRs.mhartid -> UInt(id),
     //CSRs.send_ipi -> io.host.id, /* don't care */
-    CSRs.stats -> reg_stats)
+    CSRs.stats -> reg_stats,
+    CSRs.mtohost -> reg_tohost,
+    CSRs.mfromhost -> reg_fromhost)
 
   if (params(UseVM)) {
     val read_sstatus = Wire(init=new SStatus().fromBits(read_mstatus))
@@ -389,6 +394,8 @@ class CSRFile(id:Int) extends CoreModule
     when (decoded_addr(CSRs.instretw)) { reg_instret := wdata }
     when (decoded_addr(CSRs.mtimecmp)) { reg_mtimecmp := wdata; reg_mip.mtip := false }
     when (decoded_addr(CSRs.mreset) /* XXX used by HTIF to write mtime */) { reg_time := wdata }
+    when (decoded_addr(CSRs.mfromhost)){ when (reg_fromhost === UInt(0)) { reg_fromhost := wdata } }
+    when (decoded_addr(CSRs.mtohost))  { when (reg_tohost === UInt(0)) { reg_tohost := wdata } }
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
     if (params(UseVM)) {
       when (decoded_addr(CSRs.sstatus)) {
@@ -434,4 +441,18 @@ class CSRFile(id:Int) extends CoreModule
     reg_mstatus.sd_rv32 := false
     reg_mstatus.sd := false
   }
+
+  // simple host interface
+  io.host.req.valid := reg_tohost != UInt(0)
+  io.host.req.bits.data := reg_tohost
+  io.host.req.bits.id := UInt(id)
+  when(io.host.req.fire()) {
+    reg_tohost := UInt(0) // check tohost === 0 or wait fromhost before write to tohost
+  }
+
+  io.host.resp.ready := reg_fromhost === UInt(0)
+  when(io.host.resp.fire()) {
+    reg_fromhost := io.host.resp.bits.data
+  }
+
 }

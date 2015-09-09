@@ -48,6 +48,7 @@ class Rocket (id:Int) extends CoreModule
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
+    val host = new HostIO
   }
 
   var decode_table = XDecode.table
@@ -366,6 +367,7 @@ class Rocket (id:Int) extends CoreModule
   csr.io.rw.addr := wb_reg_inst(31,20)
   csr.io.rw.cmd := Mux(wb_reg_valid, wb_ctrl.csr, CSR.N)
   csr.io.rw.wdata := wb_reg_wdata
+  io.host <> csr.io.host
 
   val hazard_targets = Seq((id_ctrl.rxs1 && id_raddr1 != UInt(0), id_raddr1),
                            (id_ctrl.rxs2 && id_raddr2 != UInt(0), id_raddr2),

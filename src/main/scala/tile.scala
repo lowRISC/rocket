@@ -11,6 +11,7 @@ abstract class Tile extends Module {
     val cached = new ClientTileLinkIO
     val uncached = new ClientUncachedTileLinkIO
     val io = new ClientUncachedTileLinkIO
+    val host = new HostIO
   }
 }
 
@@ -32,6 +33,7 @@ class RocketTile(id: Int = 0) extends Tile {
   io.io <> dcache.io.io
   icache.io.cpu <> core.io.imem
   core.io.ptw <> ptw.io.dpath
+  core.io.host <> io.host
 
   //If so specified, build an FPU module and wire it in
   params(BuildFPU)
