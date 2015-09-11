@@ -332,6 +332,7 @@ class CSRFile(id:Int) extends CoreModule
   }
 
   io.time := reg_cycle
+  reg_time := reg_cycle >> 6 // far from perfect, need a pcr configure interface to connect a shared RTC
   io.csr_replay := Bool(false)
   io.csr_stall := reg_wfi
 
@@ -393,7 +394,7 @@ class CSRFile(id:Int) extends CoreModule
     when (decoded_addr(CSRs.mbadaddr)) { reg_mbadaddr := wdata(vaddrBitsExtended-1,0) }
     when (decoded_addr(CSRs.instretw)) { reg_instret := wdata }
     when (decoded_addr(CSRs.mtimecmp)) { reg_mtimecmp := wdata; reg_mip.mtip := false }
-    when (decoded_addr(CSRs.mreset) /* XXX used by HTIF to write mtime */) { reg_time := wdata }
+    //when (decoded_addr(CSRs.mreset) /* XXX used by HTIF to write mtime */) { reg_time := wdata }
     when (decoded_addr(CSRs.mfromhost)){ when (reg_fromhost === UInt(0)) { reg_fromhost := wdata } }
     when (decoded_addr(CSRs.mtohost))  { when (reg_tohost === UInt(0)) { reg_tohost := wdata } }
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
