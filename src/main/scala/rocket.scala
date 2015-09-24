@@ -28,6 +28,10 @@ abstract trait CoreParameters extends UsesParameters {
   val coreMaxAddrBits = math.max(ppnBits,vpnBits+1) + pgIdxBits
   val vaddrBitsExtended = vaddrBits + (vaddrBits < xLen).toInt
 
+  // Print out log of committed instructions and their writeback values.
+  // Requires post-processing due to out-of-order writebacks.
+  val EnableCommitLog = false
+
   if(params(FastLoadByte)) require(params(FastLoadWord))
 }
 
@@ -43,12 +47,12 @@ abstract class CoreModule extends Module with CoreParameters
 class Rocket (id:Int) extends CoreModule
 {
   val io = new Bundle {
+    val host = new HostIO
     val imem  = new CPUFrontendIO
     val dmem = new HellaCacheIO
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
-    val host = new HostIO
   }
 
   var decode_table = XDecode.table
@@ -165,9 +169,9 @@ class Rocket (id:Int) extends CoreModule
 
   // execute stage
   val bypass_mux = Vec(bypass_sources.map(_._3))
-  val ex_reg_rs_bypass = Reg(Vec.fill(id_raddr.size)(Bool()))
-  val ex_reg_rs_lsb = Reg(Vec.fill(id_raddr.size)(Bits()))
-  val ex_reg_rs_msb = Reg(Vec.fill(id_raddr.size)(Bits()))
+  val ex_reg_rs_bypass = Reg(Vec(Bool(), id_raddr.size))
+  val ex_reg_rs_lsb = Reg(Vec(UInt(), id_raddr.size))
+  val ex_reg_rs_msb = Reg(Vec(UInt(), id_raddr.size))
   val ex_rs = for (i <- 0 until id_raddr.size)
     yield Mux(ex_reg_rs_bypass(i), bypass_mux(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
   val ex_imm = imm(ex_ctrl.sel_imm, ex_reg_inst)
@@ -478,12 +482,43 @@ class Rocket (id:Int) extends CoreModule
   io.rocc.cmd.bits.rs1 := wb_reg_wdata
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
-  printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
+  if (EnableCommitLog) {
+    val pc = Wire(SInt(width=64))
+    pc := wb_reg_pc
+    val inst = wb_reg_inst
+    val rd = RegNext(RegNext(RegNext(id_waddr)))
+    val wfd = wb_ctrl.wfd
+    val wxd = wb_ctrl.wxd
+    val has_data = wb_wen && !wb_set_sboard
+    val priv = csr.io.status.prv
+
+    when (wb_valid) {
+      when (wfd) {
+        printf ("%d 0x%x (0x%x) f%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd+UInt(32))
+      }
+      .elsewhen (wxd && rd != UInt(0) && has_data) {
+        printf ("%d 0x%x (0x%x) x%d 0x%x\n", priv, pc, inst, rd, rf_wdata)
+      }
+      .elsewhen (wxd && rd != UInt(0) && !has_data) {
+        printf ("%d 0x%x (0x%x) x%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd)
+      }
+      .otherwise {
+        printf ("%d 0x%x (0x%x)\n", priv, pc, inst)
+      }
+    }
+
+    when (ll_wen && rf_waddr != UInt(0)) {
+      printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
+    }
+  }
+  else {
+    printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
          UInt(id), csr.io.time(32,0), wb_valid, wb_reg_pc,
          Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
          wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
          wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
          wb_reg_inst, wb_reg_inst)
+  }
 
   def checkExceptions(x: Seq[(Bool, UInt)]) =
     (x.map(_._1).reduce(_||_), PriorityMux(x))

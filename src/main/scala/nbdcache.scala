@@ -124,6 +124,86 @@ class WritebackReq extends Release with CacheParameters {
   val way_en = Bits(width = nWays)
 }
 
+/** IO miss handler */
+class IOMSHR extends L1HellaCacheModule {
+  val io = new Bundle {
+    val req = Decoupled(new MSHRReq).flip       // miss request
+    val replay = Decoupled(new Replay)          // replay request for load IO
+    val outer_req = Decoupled(new Acquire)      // uncached acquire to the outer IO TileLink controller
+    val outer_gnt = Decoupled(new Grant).flip   // grant from the outer IO TileLink controller
+    val io_data = Bits(OUTPUT,coreDataBits)     // write out the data read back
+    val fence_rdy = Bool(OUTPUT)
+  }
+
+  val s_invalid :: s_io_req :: s_io_resp :: s_replay :: Nil = Enum(UInt(), 4)
+  val state = Reg(init = s_invalid)
+  val req = Reg(new MSHRReq)
+  val io_data = Reg(Bits(width = coreDataBits))
+
+  // assembly the Acquire
+  val addr_block = req.addr >> blockOffBits
+  val addr_beat = req.addr(blockOffBits,log2Up(outerDataBits/8))
+  val addr_byte = req.addr(log2Up(outerDataBits/8)-1,0)
+
+  // form the write data and write mask
+  val storegen = new StoreGen(req.typ, req.addr, req.data)
+  val outerDWords = outerDataBits/64
+  require(outerDWords > 0)
+  val acq_wdata = (Vec.fill(outerDWords){storegen.data}).toBits
+  val acq_wmask = Vec((0 until outerDWords).map(i => 
+    Mux(UInt(i)===(addr_byte >> UInt(3)), storegen.mask(7,0), UInt("b00000000"))
+    )).toBits
+
+  val acq = Mux(req.cmd === M_XWR,
+    Put(UInt(0), addr_block, addr_beat, acq_wdata, acq_wmask),
+    Get(UInt(0), addr_block, addr_beat, addr_byte, req.typ, Bool(false)))
+
+  // miss request
+  io.req.ready := state === s_invalid
+  io.fence_rdy := state === s_invalid
+
+  // the outer Acquire channel
+  io.outer_req.bits := acq
+  io.outer_req.valid := state === s_io_req
+
+  // the outer Grant channel
+  io.outer_gnt.ready := state === s_io_resp
+
+  // buf the grant message
+  when(state === s_io_resp && io.outer_gnt.fire() && req.cmd === M_XRD) {
+    io_data := io.outer_gnt.bits.data
+  }
+  io.io_data := io_data
+
+  // replay
+  io.replay.valid := state === s_replay
+  io.replay.bits := req
+  io.replay.bits.phys := Bool(true) // ?? neccessary
+
+  when(state === s_invalid && io.req.valid) {
+    state := s_io_req
+    req := io.req.bits
+  }
+  when(state === s_io_req) {
+    when(io.outer_req.fire()) { state := s_io_resp }
+  }
+  when(state === s_io_resp) {
+    when(io.outer_gnt.fire()) {
+      when(req.cmd === M_XRD) {
+        state := s_replay
+      }.otherwise{
+        state := s_invalid
+      }
+    }
+  }
+  when(state === s_replay) {
+    when(io.replay.fire()) {
+      state := s_invalid // TODO: check whether it is safe for replay that
+                         // the buf will not be overwritten by another pipelined IO load
+    }
+  }
+}
+
 class MSHR(id: Int) extends L1HellaCacheModule {
   val io = new Bundle {
     val req_pri_val    = Bool(INPUT)
@@ -375,86 +455,6 @@ class MSHRFile extends L1HellaCacheModule {
   }
 }
 
-/** IO miss handler */
-class IOMSHR extends L1HellaCacheModule {
-  val io = new Bundle {
-    val req = Decoupled(new MSHRReq).flip       // miss request
-    val replay = Decoupled(new Replay)          // replay request for load IO
-    val outer_req = Decoupled(new Acquire)      // uncached acquire to the outer IO TileLink controller
-    val outer_gnt = Decoupled(new Grant).flip   // grant from the outer IO TileLink controller
-    val io_data = Bits(OUTPUT,coreDataBits)     // write out the data read back
-    val fence_rdy = Bool(OUTPUT)
-  }
-
-  val s_invalid :: s_io_req :: s_io_resp :: s_replay :: Nil = Enum(UInt(), 4)
-  val state = Reg(init = s_invalid)
-  val req = Reg(new MSHRReq)
-  val io_data = Reg(Bits(width = coreDataBits))
-
-  // assembly the Acquire
-  val addr_block = req.addr >> blockOffBits
-  val addr_beat = req.addr(blockOffBits,log2Up(outerDataBits/8))
-  val addr_byte = req.addr(log2Up(outerDataBits/8)-1,0)
-
-  // form the write data and write mask
-  val storegen = new StoreGen(req.typ, req.addr, req.data)
-  val outerDWords = outerDataBits/64
-  require(outerDWords > 0)
-  val acq_wdata = (Vec.fill(outerDWords){storegen.data}).toBits
-  val acq_wmask = Vec((0 until outerDWords).map(i => 
-    Mux(UInt(i)===(addr_byte >> UInt(3)), storegen.mask(7,0), UInt("b00000000"))
-    )).toBits
-
-  val acq = Mux(req.cmd === M_XWR,
-    Put(UInt(0), addr_block, addr_beat, acq_wdata, acq_wmask),
-    Get(UInt(0), addr_block, addr_beat, addr_byte, req.typ, Bool(false)))
-
-  // miss request
-  io.req.ready := state === s_invalid
-  io.fence_rdy := state === s_invalid
-
-  // the outer Acquire channel
-  io.outer_req.bits := acq
-  io.outer_req.valid := state === s_io_req
-
-  // the outer Grant channel
-  io.outer_gnt.ready := state === s_io_resp
-
-  // buf the grant message
-  when(state === s_io_resp && io.outer_gnt.fire() && req.cmd === M_XRD) {
-    io_data := io.outer_gnt.bits.data
-  }
-  io.io_data := io_data
-
-  // replay
-  io.replay.valid := state === s_replay
-  io.replay.bits := req
-  io.replay.bits.phys := Bool(true) // ?? neccessary
-
-  when(state === s_invalid && io.req.valid) {
-    state := s_io_req
-    req := io.req.bits
-  }
-  when(state === s_io_req) {
-    when(io.outer_req.fire()) { state := s_io_resp }
-  }
-  when(state === s_io_resp) {
-    when(io.outer_gnt.fire()) {
-      when(req.cmd === M_XRD) {
-        state := s_replay
-      }.otherwise{
-        state := s_invalid
-      }
-    }
-  }
-  when(state === s_replay) {
-    when(io.replay.fire()) {
-      state := s_invalid // TODO: check whether it is safe for replay that
-                         // the buf will not be overwritten by another pipelined IO load
-    }
-  }
-}
-
 class WritebackUnit extends L1HellaCacheModule {
   val io = new Bundle {
     val req = Decoupled(new WritebackReq).flip
@@ -612,7 +612,7 @@ class DataArray extends L1HellaCacheModule {
   val io = new Bundle {
     val read = Decoupled(new L1DataReadReq).flip
     val write = Decoupled(new L1DataWriteReq).flip
-    val resp = Vec.fill(nWays){Bits(OUTPUT, encRowBits)}
+    val resp = Vec(Bits(OUTPUT, encRowBits), nWays)
   }
 
   val waddr = io.write.bits.addr >> rowOffBits
@@ -625,13 +625,12 @@ class DataArray extends L1HellaCacheModule {
       val resp = Wire(Vec(Bits(width = encRowBits), rowWords))
       val r_raddr = RegEnable(io.read.bits.addr, io.read.valid)
       for (p <- 0 until resp.size) {
-        val array = SeqMem(Bits(width=encRowBits), nSets*refillCycles)
+        val array = SeqMem(Vec(Bits(width=encDataBits), rowWords), nSets*refillCycles)
         when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) {
-          val data = Fill(rowWords, io.write.bits.data(encDataBits*(p+1)-1,encDataBits*p))
-          val mask = FillInterleaved(encDataBits, wway_en)
-          array.write(waddr, data, mask)
+          val data = Vec.fill(rowWords)(io.write.bits.data(encDataBits*(p+1)-1,encDataBits*p))
+          array.write(waddr, data, wway_en.toBools)
         }
-        resp(p) := array.read(raddr, rway_en.orR && io.read.valid)
+        resp(p) := array.read(raddr, rway_en.orR && io.read.valid).toBits
       }
       for (dw <- 0 until rowWords) {
         val r = Vec(resp.map(_(encDataBits*(dw+1)-1,encDataBits*dw)))
@@ -642,13 +641,13 @@ class DataArray extends L1HellaCacheModule {
       }
     }
   } else {
-    val wmask = FillInterleaved(encDataBits, io.write.bits.wmask)
     for (w <- 0 until nWays) {
-      val array = SeqMem(Bits(width=encRowBits), nSets*refillCycles)
+      val array = SeqMem(Vec(Bits(width=encDataBits), rowWords), nSets*refillCycles)
       when (io.write.bits.way_en(w) && io.write.valid) {
-        array.write(waddr, io.write.bits.data, wmask)
+        val data = Vec.tabulate(rowWords)(i => io.write.bits.data(encDataBits*(i+1)-1,encDataBits*i))
+        array.write(waddr, data, io.write.bits.wmask.toBools)
       }
-      io.resp(w) := array.read(raddr, io.read.bits.way_en(w) && io.read.valid)
+      io.resp(w) := array.read(raddr, io.read.bits.way_en(w) && io.read.valid).toBits
     }
   }
 
@@ -833,7 +832,7 @@ class HellaCache extends L1HellaCacheModule {
   // s2 data from data array
   val s2_data = Wire(Vec(Bits(width=encRowBits), nWays))
   for (w <- 0 until nWays) {
-    val regs = Reg(Vec.fill(rowWords){Bits(width = encDataBits)})
+    val regs = Reg(Vec(Bits(width = encDataBits), rowWords))
     val en1 = s1_clk_en && s1_tag_eq_way(w)
     for (i <- 0 until regs.size) {
       val en = en1 && ((Bool(i == 0) || !Bool(doNarrowRead)) || s1_writeback)

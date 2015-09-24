@@ -348,12 +348,12 @@ class FPUFMAPipe(val latency: Int, sigWidth: Int, expWidth: Int) extends Module
   fma.io.c := in.in3
 
   val res = Wire(new FPResult)
-  res.data := fma.io.out
+  res.data := Cat(SInt(-1, 32), fma.io.out)
   res.exc := fma.io.exceptionFlags
   io.out := Pipe(valid, res, latency-1)
 }
 
-class FPU extends Module
+class FPU extends CoreModule
 {
   val io = new FPUIO
 
@@ -383,7 +383,13 @@ class FPU extends Module
 
   // regfile
   val regfile = Mem(Bits(width = 65), 32)
-  when (load_wb) { regfile(load_wb_tag) := load_wb_data_recoded }
+  when (load_wb) { 
+    regfile(load_wb_tag) := load_wb_data_recoded 
+    if (EnableCommitLog) {
+      printf ("f%d p%d 0x%x\n", load_wb_tag, load_wb_tag + UInt(32),
+        Mux(load_wb_single, load_wb_data(31,0), load_wb_data))
+    }
+  }
 
   val ex_ra1::ex_ra2::ex_ra3::Nil = List.fill(3)(Reg(UInt()))
   when (io.valid) {
@@ -441,12 +447,12 @@ class FPU extends Module
   val divSqrt_in_flight = Reg(init=Bool(false))
 
   // writeback arbitration
-  case class Pipe(p: Module, lat: Int, cond: (FPUCtrlSigs) => Bool, wdata: UInt, wexc: UInt)
+  case class Pipe(p: Module, lat: Int, cond: (FPUCtrlSigs) => Bool, res: FPResult)
   val pipes = List(
-    Pipe(fpmu, fpmu.latency, (c: FPUCtrlSigs) => c.fastpipe, fpmu.io.out.bits.data, fpmu.io.out.bits.exc),
-    Pipe(ifpu, ifpu.latency, (c: FPUCtrlSigs) => c.fromint, ifpu.io.out.bits.data, ifpu.io.out.bits.exc),
-    Pipe(sfma, sfma.latency, (c: FPUCtrlSigs) => c.fma && c.single, Cat(SInt(-1, 32), sfma.io.out.bits.data), sfma.io.out.bits.exc),
-    Pipe(dfma, dfma.latency, (c: FPUCtrlSigs) => c.fma && !c.single, dfma.io.out.bits.data, dfma.io.out.bits.exc))
+    Pipe(fpmu, fpmu.latency, (c: FPUCtrlSigs) => c.fastpipe, fpmu.io.out.bits),
+    Pipe(ifpu, ifpu.latency, (c: FPUCtrlSigs) => c.fromint, ifpu.io.out.bits),
+    Pipe(sfma, sfma.latency, (c: FPUCtrlSigs) => c.fma && c.single, sfma.io.out.bits),
+    Pipe(dfma, dfma.latency, (c: FPUCtrlSigs) => c.fma && !c.single, dfma.io.out.bits))
   def latencyMask(c: FPUCtrlSigs, offset: Int) = {
     require(pipes.forall(_.lat >= offset))
     pipes.map(p => Mux(p.cond(c), UInt(1 << p.lat-offset), UInt(0))).reduce(_|_)
@@ -456,10 +462,10 @@ class FPU extends Module
   val memLatencyMask = latencyMask(mem_ctrl, 2)
 
   val wen = Reg(init=Bits(0, maxLatency-1))
-  val winfo = Reg(Vec.fill(maxLatency-1){Bits()})
+  val winfo = Reg(Vec(Bits(), maxLatency-1))
   val mem_wen = mem_reg_valid && (mem_ctrl.fma || mem_ctrl.fastpipe || mem_ctrl.fromint)
   val write_port_busy = RegEnable(mem_wen && (memLatencyMask & latencyMask(ex_ctrl, 1)).orR || (wen & latencyMask(ex_ctrl, 0)).orR, ex_reg_valid)
-  val mem_winfo = Cat(pipeid(mem_ctrl), mem_reg_inst(11,7))
+  val mem_winfo = Cat(pipeid(mem_ctrl), mem_ctrl.single, mem_reg_inst(11,7)) //single only used for debugging
 
   for (i <- 0 until maxLatency-2) {
     when (wen(i+1)) { winfo(i) := winfo(i+1) }
@@ -477,10 +483,19 @@ class FPU extends Module
   }
 
   val waddr = Mux(divSqrt_wen, divSqrt_waddr, winfo(0)(4,0).toUInt)
-  val wsrc = winfo(0) >> 5
-  val wdata = Mux(divSqrt_wen, divSqrt_wdata, Vec(pipes.map(_.wdata))(wsrc))
-  val wexc = Vec(pipes.map(_.wexc))(wsrc)
-  when (wen(0) || divSqrt_wen) { regfile(waddr) := wdata }
+  val wsrc = (winfo(0) >> 6)
+  val wdata = Mux(divSqrt_wen, divSqrt_wdata, Vec(pipes.map(_.res.data))(wsrc))
+  val wexc = Vec(pipes.map(_.res.exc))(wsrc)
+  when (wen(0) || divSqrt_wen) {
+    regfile(waddr) := wdata 
+    if (EnableCommitLog) {
+      val wdata_unrec_s = hardfloat.recodedFloatNToFloatN(wdata(64,0), 23, 9)
+      val wdata_unrec_d = hardfloat.recodedFloatNToFloatN(wdata(64,0), 52, 12)
+      val wb_single = (winfo(0) >> 5)(0)
+      printf ("f%d p%d 0x%x\n", waddr, waddr+ UInt(32),
+        Mux(wb_single, Cat(UInt(0,32), wdata_unrec_s), wdata_unrec_d))
+    }
+  }
 
   val wb_toint_valid = wb_reg_valid && wb_ctrl.toint
   val wb_toint_exc = RegEnable(fpiu.io.out.bits.exc, mem_ctrl.toint)

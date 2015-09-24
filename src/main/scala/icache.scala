@@ -21,7 +21,7 @@ class FrontendReq extends CoreBundle {
 
 class FrontendResp extends CoreBundle {
   val pc = UInt(width = vaddrBitsExtended)  // ID stage PC
-  val data = Vec.fill(coreFetchWidth) (Bits(width = coreInstBits))
+  val data = Vec(Bits(width = coreInstBits), coreFetchWidth)
   val mask = Bits(width = coreFetchWidth)
   val xcpt_if = Bool()
 }
@@ -106,7 +106,9 @@ class Frontend(btb_updates_out_of_order: Boolean = false) extends FrontendModule
   icache.io.req.bits.idx := io.cpu.npc
   icache.io.invalidate := io.cpu.invalidate
   icache.io.req.bits.ppn := tlb.io.resp.ppn
-  icache.io.req.bits.kill := io.cpu.req.valid || tlb.io.resp.miss || icmiss || io.ptw.invalidate
+  icache.io.req.bits.kill := io.cpu.req.valid ||
+    tlb.io.resp.miss || tlb.io.resp.xcpt_if ||
+    icmiss || io.ptw.invalidate
   icache.io.resp.ready := !stall && !s1_same_block
 
   io.cpu.resp.valid := s2_valid && (s2_xcpt_if || icache.io.resp.valid)
@@ -196,12 +198,11 @@ class ICache extends FrontendModule
 
   val repl_way = if (isDM) UInt(0) else LFSR16(s2_miss)(log2Up(nWays)-1,0)
   val entagbits = code.width(tagBits)
-  val tag_array = SeqMem(Bits(width = entagbits*nWays), nSets)
+  val tag_array = SeqMem(Vec(Bits(width = entagbits), nWays), nSets)
   val tag_rdata = tag_array.read(s0_pgoff(untagBits-1,blockOffBits), !refill_done && s0_valid)
   when (refill_done) {
-    val wmask = FillInterleaved(entagbits, if (isDM) Bits(1) else UIntToOH(repl_way))
     val tag = code.encode(s2_tag).toUInt
-    tag_array.write(s2_idx, Fill(nWays, tag), wmask)
+    tag_array.write(s2_idx, Vec.fill(nWays)(tag), Vec.tabulate(nWays)(repl_way === _))
   }
 
   val vb_array = Reg(init=Bits(0, nSets*nWays))
@@ -225,7 +226,7 @@ class ICache extends FrontendModule
     val s2_vb = Reg(Bool())
     val s2_tag_disparity = Reg(Bool())
     val s2_tag_match = Reg(Bool())
-    val tag_out = tag_rdata(entagbits*(i+1)-1, entagbits*i)
+    val tag_out = tag_rdata(i)
     when (s1_valid && rdy && !stall) {
       s2_vb := s1_vb
       s2_tag_disparity := code.decode(tag_out).error
