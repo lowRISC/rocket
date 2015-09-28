@@ -47,7 +47,8 @@ abstract class CoreModule extends Module with CoreParameters
 class Rocket (id:Int) extends CoreModule
 {
   val io = new Bundle {
-    val host = new HostIO
+    val pcr = new PCRIO
+    val soft_reset = Bool(INPUT)
     val imem  = new CPUFrontendIO
     val dmem = new HellaCacheIO
     val ptw = new DatapathPTWIO().flip
@@ -359,7 +360,8 @@ class Rocket (id:Int) extends CoreModule
   csr.io.exception := wb_reg_xcpt
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
-  //io.host <> csr.io.host
+  csr.io.pcr <> io.pcr
+  csr.io.soft_reset <> io.soft_reset
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc

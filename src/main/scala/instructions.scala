@@ -291,11 +291,11 @@ object CSRs {
   val mtimecmph = 0x361
   val mtimeh = 0x741
 
-  // lowRISC IO space extension
-  val miobase0 = 0xfc0     // hit if addr & ~mask == base 
-  val miomask0 = 0xfc1     // both base and mask are read-only with initial values
-  val miobase1 = 0xfc2     // set in public configuration parameters
-  val miomask1 = 0xfc3
+  // Memory mapping control 0x7A0 - 0x7AF  maximal 4 sections, 4 regs/section
+  // cbase(0), mask(1), mbase(2)
+
+  // IO mapping control 0x7B0 - 0x7BF
+  // cbase(0), mask(1)
 
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
@@ -355,10 +355,6 @@ object CSRs {
     res += mfromhost
     res += mreset
     res += send_ipi
-    res += miobase0
-    res += miomask0
-    res += miobase1
-    res += miomask1
     res.toArray
   }
   val all32 = {

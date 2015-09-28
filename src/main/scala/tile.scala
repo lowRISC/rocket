@@ -11,7 +11,8 @@ abstract class Tile extends Module {
     val cached = new ClientTileLinkIO
     val uncached = new ClientUncachedTileLinkIO
     val io = new ClientUncachedTileLinkIO
-    val host = new HostIO
+    val pcr = new PCRIO
+    val soft_reset = Bool(INPUT)
   }
 }
 
@@ -33,7 +34,8 @@ class RocketTile(id: Int = 0) extends Tile {
   io.io <> dcache.io.io
   icache.io.cpu <> core.io.imem
   core.io.ptw <> ptw.io.dpath
-  core.io.host <> io.host
+  core.io.pcr <> io.pcr
+  core.io.soft_reset <> io.soft_reset
 
   //If so specified, build an FPU module and wire it in
   params(BuildFPU)
