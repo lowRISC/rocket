@@ -491,7 +491,7 @@ class CSRFile(id:Int) extends CoreModule
   io.pcr.req.bits.cmd := io.rw.cmd
   io.pcr.req.bits.data := io.rw.wdata
 
-  when(pcr_req_valid) {
+  when(pcr_req_valid && !io.pcr.resp.valid) {
     pcr_wait_resp := Bool(true)
   }
 
