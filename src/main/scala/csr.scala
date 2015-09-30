@@ -484,4 +484,18 @@ class CSRFile(id:Int) extends CoreModule
     pcr_wait_resp := Bool(false)
   }
 
+  when(io.pcr.update.valid &&
+       io.pcr.update.bits.broadcast || io.pcr.update.bits.coreId === UInt(id))
+  {
+    // update time
+    when(io.pcr.update.bits.addr === UInt(PCRs.ptime)) {
+      reg_time := io.pcr.update.bits.data
+    }
+
+    // fromhost
+    when(io.pcr.update.bits.addr === UInt(PCRs.pfromhost)) {
+      reg_fromhost := io.pcr.update.bits.data
+    }
+  }
+
 }
