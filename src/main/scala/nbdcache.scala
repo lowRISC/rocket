@@ -661,6 +661,7 @@ class HellaCache extends L1HellaCacheModule {
     val ptw = new TLBPTWIO()
     val mem = new ClientTileLinkIO
     val io = new ClientUncachedTileLinkIO
+    val pcr_update = new ValidIO(new PCRUpdate).flip
   }
  
   require(params(LRSCCycles) >= 32) // ISA requires 16-insn LRSC sequences to succeed
@@ -674,7 +675,7 @@ class HellaCache extends L1HellaCacheModule {
   val prober = Module(new ProbeUnit)
   val mshrs = Module(new MSHRFile)
   val iomshr = Module(new IOMSHR) // IO space miss handler
-  val ioaddr = Module(new IOSpaceConsts)
+  val ioaddr = Module(new IOSpaceConsts(1))
 
   io.cpu.req.ready := Bool(true)
   val s1_valid = Reg(next=io.cpu.req.fire(), init=Bool(false))
@@ -874,10 +875,12 @@ class HellaCache extends L1HellaCacheModule {
   val s2_repl_meta = Mux1H(s2_replaced_way_en, wayMap((w: Int) => RegEnable(meta.io.resp(w), s1_clk_en && s1_replaced_way_en(w))).toSeq)
 
   // check IO space
-  ioaddr.io.paddr := s2_req.addr
+  ioaddr.io.update := io.pcr_update
+  ioaddr.io.paddr(0) := s2_req.addr
+  val isIO = ioaddr.io.isIO(0)
 
   // miss handling
-  mshrs.io.req.valid := s2_valid_masked && !s2_hit && !ioaddr.io.isIO && (isPrefetch(s2_req.cmd) || isRead(s2_req.cmd) || isWrite(s2_req.cmd))
+  mshrs.io.req.valid := s2_valid_masked && !s2_hit && !isIO && (isPrefetch(s2_req.cmd) || isRead(s2_req.cmd) || isWrite(s2_req.cmd))
   mshrs.io.req.bits := s2_req
   mshrs.io.req.bits.tag_match := s2_tag_match
   mshrs.io.req.bits.old_meta := Mux(s2_tag_match, L1Metadata(s2_repl_meta.tag, s2_hit_state), s2_repl_meta)
@@ -896,7 +899,7 @@ class HellaCache extends L1HellaCacheModule {
   metaWriteArb.io.in(0) <> mshrs.io.meta_write
 
   // IO miss handling
-  iomshr.io.req.valid := s2_valid_masked && !s2_hit && ioaddr.io.isIO
+  iomshr.io.req.valid := s2_valid_masked && !s2_hit && isIO
   iomshr.io.req.bits := s2_req
   iomshr.io.req.bits.data := s2_req.data
   iomshr.io.outer_req <> io.io.acquire
@@ -981,8 +984,8 @@ class HellaCache extends L1HellaCacheModule {
   val s2_nack_hit = RegEnable(s1_nack, s1_valid || s1_replay)
   when (s2_nack_hit) { mshrs.io.req.valid := Bool(false) }
   val s2_nack_victim = s2_hit && mshrs.io.secondary_miss
-  val s2_nack_miss = !ioaddr.io.isIO && !s2_hit && !mshrs.io.req.ready
-  val s2_nack_io_miss = ioaddr.io.isIO && !iomshr.io.req.ready
+  val s2_nack_miss = !isIO && !s2_hit && !mshrs.io.req.ready
+  val s2_nack_io_miss = isIO && !iomshr.io.req.ready
   val s2_nack = s2_nack_hit || s2_nack_victim || s2_nack_miss || s2_nack_io_miss
   s2_valid_masked := s2_valid && !s2_nack
 

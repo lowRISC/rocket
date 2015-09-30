@@ -27,15 +27,18 @@ class RocketTile(id: Int = 0) extends Tile {
   dcArb.io.requestor(0) <> ptw.io.mem
   dcArb.io.requestor(1) <> core.io.dmem
   dcache.io.cpu <> dcArb.io.mem
+  dcache.io.pcr_update := io.pcr.update
+  dcache.io.soft_reset := io.soft_reset
 
   ptw.io.requestor(0) <> icache.io.ptw
   ptw.io.requestor(1) <> dcache.io.ptw
 
   io.io <> dcache.io.io
   icache.io.cpu <> core.io.imem
+  icache.io.soft_reset := io.soft_reset
   core.io.ptw <> ptw.io.dpath
   core.io.pcr <> io.pcr
-  core.io.soft_reset <> io.soft_reset
+  core.io.soft_reset := io.soft_reset
 
   //If so specified, build an FPU module and wire it in
   params(BuildFPU)
