@@ -6,6 +6,7 @@ import Chisel._
 import Util._
 import Instructions._
 import uncore._
+import uncore.constants._
 import scala.math._
 
 class MStatus extends Bundle {
@@ -84,9 +85,6 @@ class CSRFileIO extends CoreBundle {
   val interrupt = Bool(OUTPUT)
   val interrupt_cause = UInt(OUTPUT, xLen)
 
-  // soft reset (one use is to transfer control between bootloaders)
-  val soft_reset = Bool(INPUT)
-
   // read/write configuration registers in other modules
   val pcr = new PCRIO
 }
@@ -115,7 +113,7 @@ class CSRFile(id:Int) extends CoreModule
   //val reg_tohost = Reg(init=Bits(0, xLen))  -> pcr
   val reg_fromhost = Reg(init=Bits(0, xLen))
   val reg_stats = Reg(init=Bool(false))
-  //val reg_time = Reg(UInt(width = xLen))    -> pcr
+  val reg_time = Reg(UInt(width = xLen))
   val reg_instret = WideCounter(xLen, io.retire)
   val reg_cycle = if (EnableCommitLog) { reg_instret } else { WideCounter(xLen) }
   val reg_uarch_counters = io.uarch_counters.map(WideCounter(xLen, _))
@@ -187,7 +185,7 @@ class CSRFile(id:Int) extends CoreModule
     CSRs.mtohost -> UInt(0), //reg_tohost,
     CSRs.mfromhost -> reg_fromhost)
 
-  val pcr_mapping = collection.mutable.LinkedHashMap[Int,Int] = (
+  val pcr_mapping = collection.mutable.LinkedHashMap[Int,Int](
     CSRs.time -> CSRs.mtime,
     CSRs.timew -> CSRs.mtime,
     CSRs.stime -> CSRs.mtime,
@@ -227,7 +225,7 @@ class CSRFile(id:Int) extends CoreModule
     read_mapping += (CSRs.uarch0 + i) -> reg_uarch_counters(i)
 
   for (i <- 0 until params(NCustomMRWCSRs)) {
-    val addr = 0x790 + i // turn 0x790 into parameter CustomMRWCSRBase?
+    val addr:Int = 0x790 + i // turn 0x790 into parameter CustomMRWCSRBase?
     require(addr >= 0x780 && addr <= 0x78F, "custom MRW CSR address " + i + " is out of range")
     require(!read_mapping.contains(addr), "custom MRW CSR address " + i + " is already in use")
     read_mapping += addr -> io.custom_mrw_csrs(i)
@@ -236,27 +234,27 @@ class CSRFile(id:Int) extends CoreModule
   // maximal 4 memory sections
   require(params(NMemSections) <= 4)
   for(i <- 0 until params(NMemSections)) {
-    val addr = 0x7A0 + i*4 // 0x7A0 - 0x7AF
+    val addr:Int = 0x7A0 + i*4 // 0x7A0 - 0x7AF
     require(addr >= 0x7A0 && addr <= 0x7AF, "Memory Section CSR address " + i + " is out of range")
     require(!read_mapping.contains(addr), "Memory Section CSR address " + i + " is already in use")
     read_mapping += addr -> io.pcr.resp.bits.data
     pcr_mapping += addr -> addr
     read_mapping += addr+1 -> io.pcr.resp.bits.data
-    pcr_mapping += addr+1 -> addr+1
+    pcr_mapping += addr+1 -> (addr+1)
     read_mapping += addr+2 -> io.pcr.resp.bits.data
-    pcr_mapping += addr+2 -> addr+2
+    pcr_mapping += addr+2 -> (addr+2)
   }
 
   // maximal 4 memory sections
   require(params(NIOSections) <= 8)
   for(i <- 0 until params(NIOSections)) {
-    val addr = 0x7B0 + i*2 // 0x7B0 - 0x7BF
+    val addr:Int = 0x7B0 + i*2 // 0x7B0 - 0x7BF
     require(addr >= 0x7B0 && addr <= 0x7BF, "IO Section CSR address " + i + " is out of range")
     require(!read_mapping.contains(addr), "IO Section CSR address " + i + " is already in use")
     read_mapping += addr -> io.pcr.resp.bits.data
     pcr_mapping += addr -> addr
     read_mapping += addr+1 -> io.pcr.resp.bits.data
-    pcr_mapping += addr+1 -> addr+1
+    pcr_mapping += addr+1 -> (addr+1)
   }
 
   val addr = io.rw.addr
@@ -266,11 +264,6 @@ class CSRFile(id:Int) extends CoreModule
   val csr_addr_priv = io.rw.addr(9,8)
   val priv_sufficient = reg_mstatus.prv >= csr_addr_priv
   val read_only = io.rw.addr(11,10).andR
-  val pcr_addr = pcr_mapping map { case (k, a) => k -> (addr === k) }
-  val pcr_addr_valid = pcr_addr.values.reduce(_||_)
-  val pcr_wait_resp = Reg(init=Bool(false))
-  val pcr_req_valid = pcr_addr_valid && priv_sufficient && !csr_xcpt && !pcr_wait_resp
-  val pcr_req_addr_reg = RegEnable(io.pcr.req.bits.addr, io.pcr.req.fire())
 
   val cpu_wen = cpu_ren && io.rw.cmd != CSR.R && priv_sufficient
   val wen = cpu_wen && !read_only
@@ -357,11 +350,16 @@ class CSRFile(id:Int) extends CoreModule
     reg_mip.mtip := true
   }
 
+  // pcr
+  val pcr_addr = pcr_mapping map { case (k, a) => k -> (addr === k) }
+  val pcr_addr_valid = pcr_addr.values.reduce(_||_)
+  val pcr_wait_resp = Reg(init=Bool(false))
+  val pcr_req_valid = pcr_addr_valid && priv_sufficient && !csr_xcpt && !pcr_wait_resp
+
   io.time := reg_cycle
-  reg_time := reg_cycle >> 6 // far from perfect, need a pcr configure interface to connect a shared RTC
   io.csr_replay := pcr_req_valid && !io.pcr.req.ready // pcr write but not ready
   io.csr_stall := reg_wfi || // or waiting pcr response
-                  pcr_wait_resp && (!io.pcr.resp.valid || io.pcr.resp.bits.addr != pcr_req_addr_reg)
+                  pcr_wait_resp && (!io.pcr.resp.valid || io.pcr.resp.bits.coreId != UInt(id))
 
   io.rw.rdata := Mux1H(for ((k, v) <- read_mapping) yield decoded_addr(k) -> v)
 
@@ -421,7 +419,6 @@ class CSRFile(id:Int) extends CoreModule
     when (decoded_addr(CSRs.mbadaddr)) { reg_mbadaddr := wdata(vaddrBitsExtended-1,0) }
     when (decoded_addr(CSRs.instretw)) { reg_instret := wdata }
     when (decoded_addr(CSRs.mtimecmp)) { reg_mtimecmp := wdata; reg_mip.mtip := false }
-    when (decoded_addr(CSRs.mreset))   { reg_mreset := wdata(0) }
     when (decoded_addr(CSRs.mfromhost)){ when (reg_fromhost === UInt(0)) { reg_fromhost := wdata } }
     //when (decoded_addr(CSRs.mtohost))  { when (reg_tohost === UInt(0)) { reg_tohost := wdata } }
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
@@ -451,7 +448,7 @@ class CSRFile(id:Int) extends CoreModule
     }
   }
 
-  private def mstatus_rest() = {
+  private def mstatus_reset = {
     reg_mstatus.zero1 := 0
     reg_mstatus.zero2 := 0
     reg_mstatus.ie := false
@@ -471,42 +468,20 @@ class CSRFile(id:Int) extends CoreModule
   }
 
   when(this.reset) {
-    mstatus_reset()
-  }
-
-  when(io.soft_reset) {
-    mstatus_reset()
-    reg_mie := new MIP().fromBits(0)
-    reg_mip := new MIP().fromBits(0)
-    reg_fromhost := UInt(0)
-    reg_stats := Bool(false)
-    reg_wfi := Bool(false)
-    pcr_wait_resp := Bool(false)
+    mstatus_reset
   }
 
   // pcr interface
   io.pcr.req.valid := pcr_req_valid
-  io.pcr.req.bit.coreId := UInt(id)
-  io.pcr.req.bits.addr := Mux1H(for ((k, a) <- pcr_mapping) yield pcr_addr(k) -> a)
+  io.pcr.req.bits.coreId := UInt(id)
+  io.pcr.req.bits.addr := Mux1H(for ((k, a) <- pcr_mapping) yield pcr_addr(k) -> UInt(a))
   io.pcr.req.bits.cmd := io.rw.cmd
   io.pcr.req.bits.data := io.rw.wdata
 
-  when(pcr_req_valid && !io.pcr.resp.valid) {
+  when(pcr_req_valid && (!io.pcr.resp.valid || !io.pcr.resp.bits.coreId === UInt(id))) {
     pcr_wait_resp := Bool(true)
-  }
-
-  val pcr_resp_addr = read_mapping map { case (k, v) => k -> (io.pcr.resp.bits.addr === k)}
-
-  when(io.pcr.resp.valid &&
-    (io.pcr.resp.bits.coreId === UInt(id) || io.pcr.resp.bits.broadcast))
-  {
-    when(pcr_resp_addr(CSRs.mfromhost)) { reg_fromhost := io.pcr.resp.bits.data }
-    when(pcr_resp_addr(CSRs.mtime))     { reg_time := io.pcr.resp.bits.data }
-
-    // release pcr waiting
-    when(io.pcr.resp.bits.addr === pcr_req_addr_reg) {
-      pcr_wait_resp := Bool(false)
-    }
+  } .elsewhen(io.pcr.resp.valid && io.pcr.resp.bits.coreId === UInt(id)) {
+    pcr_wait_resp := Bool(false)
   }
 
 }

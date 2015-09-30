@@ -23,7 +23,7 @@ abstract trait L1HellaCacheParameters extends L1CacheParameters {
 }
 
 abstract class L1HellaCacheBundle extends Bundle with L1HellaCacheParameters
-abstract class L1HellaCacheModule extends Module with L1HellaCacheParameters
+abstract class L1HellaCacheModule(resetSignal:Bool = null) extends Module(_reset = resetSignal) with L1HellaCacheParameters
 
 trait HasCoreMemOp extends CoreBundle {
   val addr = UInt(width = coreMaxAddrBits)
@@ -655,7 +655,7 @@ class DataArray extends L1HellaCacheModule {
   io.write.ready := Bool(true)
 }
 
-class HellaCache extends L1HellaCacheModule {
+class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal) {
   val io = new Bundle {
     val cpu = (new HellaCacheIO).flip
     val ptw = new TLBPTWIO()

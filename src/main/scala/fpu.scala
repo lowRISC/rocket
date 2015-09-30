@@ -353,7 +353,7 @@ class FPUFMAPipe(val latency: Int, sigWidth: Int, expWidth: Int) extends Module
   io.out := Pipe(valid, res, latency-1)
 }
 
-class FPU extends CoreModule
+class FPU(resetSignal:Bool = null) extends CoreModule(resetSignal)
 {
   val io = new FPUIO
 

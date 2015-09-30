@@ -13,7 +13,7 @@ abstract trait L1CacheParameters extends CacheParameters with CoreParameters {
 
 abstract trait FrontendParameters extends L1CacheParameters
 abstract class FrontendBundle extends Bundle with FrontendParameters
-abstract class FrontendModule extends Module with FrontendParameters
+abstract class FrontendModule(resetSignal:Bool = null) extends Module(_reset = resetSignal) with FrontendParameters
 
 class FrontendReq extends CoreBundle {
   val pc = UInt(width = vaddrBitsExtended)
@@ -37,7 +37,7 @@ class CPUFrontendIO extends CoreBundle {
   val npc = UInt(INPUT, width = vaddrBitsExtended)
 }
 
-class Frontend(btb_updates_out_of_order: Boolean = false) extends FrontendModule
+class Frontend(btb_updates_out_of_order: Boolean = false, resetSignal:Bool = null) extends FrontendModule(resetSignal)
 {
   val io = new Bundle {
     val cpu = new CPUFrontendIO().flip

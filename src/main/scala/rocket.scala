@@ -5,6 +5,7 @@ package rocket
 import Chisel._
 import junctions._
 import uncore._
+import uncore.constants._
 import Util._
 
 abstract trait CoreParameters extends UsesParameters {
@@ -42,13 +43,12 @@ abstract trait RocketCoreParameters extends CoreParameters
 }
 
 abstract class CoreBundle extends Bundle with CoreParameters
-abstract class CoreModule extends Module with CoreParameters
+abstract class CoreModule(resetSignal:Bool = null) extends Module(_reset = resetSignal) with CoreParameters
 
-class Rocket (id:Int) extends CoreModule
+class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 {
   val io = new Bundle {
     val pcr = new PCRIO
-    val soft_reset = Bool(INPUT)
     val imem  = new CPUFrontendIO
     val dmem = new HellaCacheIO
     val ptw = new DatapathPTWIO().flip
@@ -73,8 +73,8 @@ class Rocket (id:Int) extends CoreModule
   val ex_reg_flush_pipe      = Reg(Bool())
   val ex_reg_load_use        = Reg(Bool())
   val ex_reg_cause           = Reg(UInt())
-  val ex_reg_pc = Reg(UInt())
-  val ex_reg_inst = Reg(Bits())
+  val ex_reg_pc              = Reg(UInt())
+  val ex_reg_inst            = Reg(Bits())
 
   val mem_reg_xcpt_interrupt  = Reg(Bool())
   val mem_reg_valid           = Reg(Bool())
@@ -85,22 +85,22 @@ class Rocket (id:Int) extends CoreModule
   val mem_reg_flush_pipe      = Reg(Bool())
   val mem_reg_cause           = Reg(UInt())
   val mem_reg_slow_bypass     = Reg(Bool())
-  val mem_reg_pc = Reg(UInt())
-  val mem_reg_inst = Reg(Bits())
-  val mem_reg_wdata = Reg(Bits())
-  val mem_reg_rs2 = Reg(Bits())
-  val take_pc_mem = Wire(Bool())
+  val mem_reg_pc              = Reg(UInt())
+  val mem_reg_inst            = Reg(Bits())
+  val mem_reg_wdata           = Reg(Bits())
+  val mem_reg_rs2             = Reg(Bits())
+  val take_pc_mem             = Wire(Bool())
 
   val wb_reg_valid           = Reg(Bool())
   val wb_reg_xcpt            = Reg(Bool())
   val wb_reg_replay          = Reg(Bool())
   val wb_reg_cause           = Reg(UInt())
   val wb_reg_rocc_pending    = Reg(init=Bool(false))
-  val wb_reg_pc = Reg(UInt())
-  val wb_reg_inst = Reg(Bits())
-  val wb_reg_wdata = Reg(Bits())
-  val wb_reg_rs2 = Reg(Bits())
-  val take_pc_wb = Wire(Bool())
+  val wb_reg_pc              = Reg(UInt())
+  val wb_reg_inst            = Reg(Bits())
+  val wb_reg_wdata           = Reg(Bits())
+  val wb_reg_rs2             = Reg(Bits())
+  val take_pc_wb             = Wire(Bool())
 
   val take_pc_mem_wb = take_pc_wb || take_pc_mem
   val take_pc = take_pc_mem_wb
@@ -361,7 +361,6 @@ class Rocket (id:Int) extends CoreModule
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
   csr.io.pcr <> io.pcr
-  csr.io.soft_reset <> io.soft_reset
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc
@@ -373,7 +372,6 @@ class Rocket (id:Int) extends CoreModule
   csr.io.rw.addr := wb_reg_inst(31,20)
   csr.io.rw.cmd := Mux(wb_reg_valid, wb_ctrl.csr, CSR.N)
   csr.io.rw.wdata := wb_reg_wdata
-  io.host <> csr.io.host
 
   val hazard_targets = Seq((id_ctrl.rxs1 && id_raddr1 != UInt(0), id_raddr1),
                            (id_ctrl.rxs2 && id_raddr2 != UInt(0), id_raddr2),

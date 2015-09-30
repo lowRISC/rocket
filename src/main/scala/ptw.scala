@@ -51,7 +51,7 @@ class PTE extends CoreBundle {
     Mux(prv(0), Mux(fetch, sx(), Mux(store, sw(), sr())), Mux(fetch, ux(), Mux(store, uw(), ur())))
 }
 
-class PTW(n: Int) extends CoreModule
+class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 {
   val io = new Bundle {
     val requestor = Vec(new TLBPTWIO, n).flip
