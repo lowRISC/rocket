@@ -354,7 +354,7 @@ class CSRFile(id:Int) extends CoreModule
   val pcr_addr = pcr_mapping map { case (k, a) => k -> (addr === k) }
   val pcr_addr_valid = pcr_addr.values.reduce(_||_)
   val pcr_wait_resp = Reg(init=Bool(false))
-  val pcr_req_valid = pcr_addr_valid && priv_sufficient && !csr_xcpt && !pcr_wait_resp
+  val pcr_req_valid = pcr_addr_valid && cpu_ren && priv_sufficient && !csr_xcpt && !pcr_wait_resp
 
   io.time := reg_cycle
   io.csr_replay := pcr_req_valid && !io.pcr.req.ready // pcr write but not ready
@@ -448,7 +448,7 @@ class CSRFile(id:Int) extends CoreModule
     }
   }
 
-  private def mstatus_reset = {
+  when(this.reset) {
     reg_mstatus.zero1 := 0
     reg_mstatus.zero2 := 0
     reg_mstatus.ie := false
@@ -465,10 +465,6 @@ class CSRFile(id:Int) extends CoreModule
     reg_mstatus.xs := 0
     reg_mstatus.sd_rv32 := false
     reg_mstatus.sd := false
-  }
-
-  when(this.reset) {
-    mstatus_reset
   }
 
   // pcr interface
