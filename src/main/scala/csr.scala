@@ -186,12 +186,13 @@ class CSRFile(id:Int) extends CoreModule
     CSRs.mfromhost -> reg_fromhost)
 
   val pcr_mapping = collection.mutable.LinkedHashMap[Int,Int](
-    CSRs.time -> CSRs.mtime,
-    CSRs.timew -> CSRs.mtime,
-    CSRs.stime -> CSRs.mtime,
-    CSRs.stimew -> CSRs.mtime,
-    CSRs.mtime -> CSRs.mtime,
-    CSRs.mtohost -> CSRs.mtohost
+    CSRs.time -> PCRs.ptime,
+    CSRs.timew -> PCRs.ptime,
+    CSRs.stime -> PCRs.ptime,
+    CSRs.stimew -> PCRs.ptime,
+    CSRs.mtime -> PCRs.ptime,
+    CSRs.mreset -> PCRs.preset,
+    CSRs.mtohost -> PCRs.ptohost
   )
 
   if (params(UseVM)) {
