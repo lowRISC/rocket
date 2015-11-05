@@ -48,12 +48,13 @@ abstract class CoreModule(resetSignal:Bool = null) extends Module(_reset = reset
 class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 {
   val io = new Bundle {
-    val pcr = new PCRIO
     val imem  = new CPUFrontendIO
     val dmem = new HellaCacheIO
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
+    val pcr = new PCRIO
+    val irq = Bool(INPUT)
   }
 
   var decode_table = XDecode.table
@@ -361,6 +362,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
   csr.io.pcr <> io.pcr
+  csr.io.irq <> io.irq
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc

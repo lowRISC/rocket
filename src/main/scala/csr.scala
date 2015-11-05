@@ -87,6 +87,7 @@ class CSRFileIO extends CoreBundle {
 
   // read/write configuration registers in other modules
   val pcr = new PCRIO
+  val irq = Bool(INPUT)
 }
 
 class CSRFile(id:Int) extends CoreModule
@@ -140,6 +141,7 @@ class CSRFile(id:Int) extends CoreModule
   checkInterrupt(PRV_M, reg_mie.mtip && reg_mip.mtip, 1)
   checkInterrupt(PRV_M, reg_fromhost != 0, 2)
   checkInterrupt(PRV_M, irq_rocc, 3)
+  checkInterrupt(PRV_M, io.irq, 4) // peripherial IRQs
 
   val system_insn = io.rw.cmd === CSR.I
   val cpu_ren = io.rw.cmd != CSR.N && !system_insn
@@ -227,7 +229,7 @@ class CSRFile(id:Int) extends CoreModule
 
   for (i <- 0 until params(NCustomMRWCSRs)) {
     val addr:Int = 0x790 + i // turn 0x790 into parameter CustomMRWCSRBase?
-    require(addr >= 0x780 && addr <= 0x78F, "custom MRW CSR address " + i + " is out of range")
+    require(addr >= 0x790 && addr <= 0x79F, "custom MRW CSR address " + i + " is out of range")
     require(!read_mapping.contains(addr), "custom MRW CSR address " + i + " is already in use")
     read_mapping += addr -> io.custom_mrw_csrs(i)
   }
@@ -235,8 +237,8 @@ class CSRFile(id:Int) extends CoreModule
   // maximal 4 memory sections
   require(params(NMemSections) <= 4)
   for(i <- 0 until params(NMemSections)) {
-    val addr:Int = 0x7A0 + i*4 // 0x7A0 - 0x7AF
-    require(addr >= 0x7A0 && addr < 0x7AF, "Memory Section CSR address " + i + " is out of range")
+    val addr:Int = PCRs.pmem_map + i*4 // 0x7A0 - 0x7AF
+    require(addr >= PCRs.pmem_map && addr < PCRs.pmem_map_update, "Memory Section CSR address " + i + " is out of range")
     require(!read_mapping.contains(addr), "Memory Section CSR address " + i + " is already in use")
     read_mapping += addr -> io.pcr.resp.bits.data
     pcr_mapping += addr -> addr
@@ -246,14 +248,14 @@ class CSRFile(id:Int) extends CoreModule
     pcr_mapping += addr+2 -> (addr+2)
   }
   // update memory space
-  read_mapping += 0x7AF -> UInt(0)
-  pcr_mapping += 0x7AF -> 0x7AF
+  read_mapping += PCRs.pmem_map_update -> UInt(0)
+  pcr_mapping += PCRs.pmem_map_update -> PCRs.pmem_map_update
 
   // maximal 4 memory sections
   require(params(NIOSections) <= 4)
   for(i <- 0 until params(NIOSections)) {
-    val addr:Int = 0x7B0 + i*4 // 0x7B0 - 0x7BF
-    require(addr >= 0x7B0 && addr < 0x7BF, "IO Section CSR address " + i + " is out of range")
+    val addr:Int = PCRs.pio_map + i*4 // 0x7B0 - 0x7BF
+    require(addr >= PCRs.pio_map && addr < PCRs.pio_map_update, "IO Section CSR address " + i + " is out of range")
     require(!read_mapping.contains(addr), "IO Section CSR address " + i + " is already in use")
     read_mapping += addr -> io.pcr.resp.bits.data
     pcr_mapping += addr -> addr
@@ -261,8 +263,18 @@ class CSRFile(id:Int) extends CoreModule
     pcr_mapping += addr+1 -> (addr+1)
   }
   // update io space
-  read_mapping += 0x7BF -> UInt(0)
-  pcr_mapping += 0x7BF -> 0x7BF
+  read_mapping += PCRs.pio_map_update -> UInt(0)
+  pcr_mapping += PCRs.pio_map_update -> PCRs.pio_map_update
+
+  // peripheral IRQs
+  require(params(NTiles) <= 8)
+  for(i <- 0 until params(NTiles)) {
+    val addr:Int = PCRs.pint_map + i*2 // 0x7c0 - 0x7cf
+    read_mapping += addr -> io.pcr.resp.bits.data
+    pcr_mapping += addr -> addr
+    read_mapping += addr+1 -> io.pcr.resp.bits.data
+    pcr_mapping += addr+1 -> (addr+1)
+  }
 
   val addr = io.rw.addr
   val decoded_addr = read_mapping map { case (k, v) => k -> (addr === k) }
