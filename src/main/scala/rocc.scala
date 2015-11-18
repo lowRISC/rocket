@@ -3,9 +3,10 @@
 package rocket
 
 import Chisel._
-import Node._
 import uncore._
 import Util._
+
+case object RoCCMaxTaggedMemXacts extends Field[Int]
 
 class RoCCInstruction extends Bundle
 {
@@ -19,17 +20,17 @@ class RoCCInstruction extends Bundle
   val opcode = Bits(width = 7)
 }
 
-class RoCCCommand extends Bundle
+class RoCCCommand extends CoreBundle
 {
   val inst = new RoCCInstruction
-  val rs1 = Bits(width = params(XprLen))
-  val rs2 = Bits(width = params(XprLen))
+  val rs1 = Bits(width = xLen)
+  val rs2 = Bits(width = xLen)
 }
 
-class RoCCResponse extends Bundle
+class RoCCResponse extends CoreBundle
 {
   val rd = Bits(width = 5)
-  val data = Bits(width = params(XprLen))
+  val data = Bits(width = xLen)
 }
 
 class RoCCInterface extends Bundle
@@ -42,14 +43,15 @@ class RoCCInterface extends Bundle
   val interrupt = Bool(OUTPUT)
   
   // These should be handled differently, eventually
-  val imem = new UncachedTileLinkIO
+  val imem = new ClientUncachedTileLinkIO
+  val dmem = new ClientUncachedTileLinkIO
   val iptw = new TLBPTWIO
   val dptw = new TLBPTWIO
   val pptw = new TLBPTWIO
   val exception = Bool(INPUT)
 }
 
-abstract class RoCC extends Module
+abstract class RoCC extends CoreModule
 {
   val io = new RoCCInterface
   io.mem.req.bits.phys := Bool(true) // don't perform address translation
@@ -58,8 +60,8 @@ abstract class RoCC extends Module
 class AccumulatorExample extends RoCC
 {
   val n = 4
-  val regfile = Mem(UInt(width = params(XprLen)), n)
-  val busy = Vec.fill(n){Reg(init=Bool(false))}
+  val regfile = Mem(UInt(width = xLen), n)
+  val busy = Reg(init=Vec(Bool(false), n))
 
   val cmd = Queue(io.cmd)
   val funct = cmd.bits.inst.funct
@@ -120,10 +122,12 @@ class AccumulatorExample extends RoCC
   io.mem.req.bits.cmd := M_XRD // perform a load (M_XWR for stores)
   io.mem.req.bits.typ := MT_D // D = 8 bytes, W = 4, H = 2, B = 1
   io.mem.req.bits.data := Bits(0) // we're not performing any stores...
+  io.mem.invalidate_lr := false
 
   io.imem.acquire.valid := false
   io.imem.grant.ready := false
-  io.imem.finish.valid := false
+  io.dmem.acquire.valid := false
+  io.dmem.grant.ready := false
   io.iptw.req.valid := false
   io.dptw.req.valid := false
   io.pptw.req.valid := false

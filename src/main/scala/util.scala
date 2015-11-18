@@ -6,20 +6,15 @@ import Chisel._
 import uncore._
 import scala.math._
 
-class Unsigned(x: Int) {
-  require(x >= 0)
-  def clog2: Int = { require(x > 0); ceil(log(x)/log(2)).toInt }
-  def log2: Int = { require(x > 0); floor(log(x)/log(2)).toInt }
-  def isPow2: Boolean = x > 0 && (x & (x-1)) == 0
-  def nextPow2: Int = if (x == 0) 1 else 1 << clog2
-}
-
 object Util {
   implicit def intToUInt(x: Int): UInt = UInt(x)
   implicit def booleanToBool(x: Boolean): Bits = Bool(x)
-  implicit def intSeqToUIntSeq(x: Iterable[Int]): Iterable[UInt] = x.map(UInt(_))
-  implicit def seqToVec[T <: Data](x: Iterable[T]): Vec[T] = Vec(x)
+  implicit def intSeqToUIntSeq(x: Seq[Int]): Seq[UInt] = x.map(UInt(_))
+  implicit def seqToVec[T <: Data](x: Seq[T]): Vec[T] = Vec(x)
   implicit def wcToUInt(c: WideCounter): UInt = c.value
+  implicit def sextToConv(x: UInt) = new AnyRef {
+    def sextTo(n: Int): UInt = Cat(Fill(n - x.getWidth, x(x.getWidth-1)), x)
+  }
 
   implicit def intToUnsigned(x: Int): Unsigned = new Unsigned(x)
   implicit def booleanToIntConv(x: Boolean) = new AnyRef {
@@ -105,7 +100,7 @@ object Split
     val w = x.getWidth
     def decreasing(x: Seq[Int]): Boolean =
       if (x.tail.isEmpty) true
-      else x.head > x.tail.head && decreasing(x.tail)
+      else x.head >= x.tail.head && decreasing(x.tail)
     require(decreasing(w :: n.toList))
     w
   }
@@ -158,50 +153,3 @@ object Random
   private def partition(value: UInt, slices: Int) =
     Vec.tabulate(slices)(i => value < round((i << value.getWidth).toDouble / slices))
 }
-
-class FlowThroughSerializer[T <: HasTileLinkData](gen: LogicalNetworkIO[T], n: Int, doSer: T => Bool) extends Module {
-  val io = new Bundle {
-    val in = Decoupled(gen.clone).flip
-    val out = Decoupled(gen.clone)
-    val cnt = UInt(OUTPUT, log2Up(n))
-    val done = Bool(OUTPUT)
-  }
-  require(io.in.bits.payload.data.getWidth % n == 0)
-  val narrowWidth = io.in.bits.payload.data.getWidth / n
-  val cnt = Reg(init=UInt(0, width = log2Up(n)))
-  val wrap = cnt === UInt(n-1)
-  val rbits = Reg(init=io.in.bits)
-  val active = Reg(init=Bool(false))
-
-  val shifter = Vec.fill(n){Bits(width = narrowWidth)}
-  (0 until n).foreach { 
-    i => shifter(i) := rbits.payload.data((i+1)*narrowWidth-1,i*narrowWidth)
-  }
-
-  io.done := Bool(false)
-  io.cnt := cnt
-  io.in.ready := !active
-  io.out.valid := active || io.in.valid
-  io.out.bits := io.in.bits
-  when(!active && io.in.valid) {
-    when(doSer(io.in.bits.payload)) {
-      cnt := Mux(io.out.ready, UInt(1), UInt(0))
-      rbits := io.in.bits
-      active := Bool(true)
-    }
-    io.done := !doSer(io.in.bits.payload)
-  }
-  when(active) {
-    io.out.bits := rbits
-    io.out.bits.payload.data := shifter(cnt)
-    when(io.out.ready) { 
-      cnt := cnt + UInt(1)
-      when(wrap) {
-        cnt := UInt(0)
-        io.done := Bool(true)
-        active := Bool(false)
-      }
-    }
-  }
-}
-

@@ -6,16 +6,16 @@ import Chisel._
 import ALU._
 import Util._
 
-class MultiplierReq extends Bundle {
+class MultiplierReq extends CoreBundle {
   val fn = Bits(width = SZ_ALU_FN)
   val dw = Bits(width = SZ_DW)
-  val in1 = Bits(width = params(XprLen))
-  val in2 = Bits(width = params(XprLen))
+  val in1 = Bits(width = xLen)
+  val in2 = Bits(width = xLen)
   val tag = UInt(width = log2Up(params(NMultXpr)))
 }
 
-class MultiplierResp extends Bundle {
-  val data = Bits(width = params(XprLen))
+class MultiplierResp extends CoreBundle {
+  val data = Bits(width = xLen)
   val tag = UInt(width = log2Up(params(NMultXpr)))
 }
 
@@ -50,7 +50,7 @@ class MulDiv(mulUnroll: Int = 1, earlyOut: Boolean = false) extends Module {
                    FN_MUL    -> List(Y, N, X, X),
                    FN_MULH   -> List(Y, Y, Y, Y),
                    FN_MULHU  -> List(Y, Y, N, N),
-                   FN_MULHSU -> List(Y, Y, Y, N)))
+                   FN_MULHSU -> List(Y, Y, Y, N))).map(_ toBool)
 
   def sext(x: Bits, signed: Bool) = {
     val sign = signed && Mux(io.req.bits.dw === DW_64, x(w-1), x(w/2-1))
@@ -95,7 +95,7 @@ class MulDiv(mulUnroll: Int = 1, earlyOut: Boolean = false) extends Module {
       !isHi && (mplier & ~eOutMask) === UInt(0)
     val eOutRes = (mulReg >> (mulw - count * mulUnroll)(log2Up(mulw)-1,0))
     val nextMulReg1 = Cat(nextMulReg(2*mulw,mulw), Mux(eOut, eOutRes, nextMulReg)(mulw-1,0))
-    remainder := Cat(nextMulReg1 >> w, Bool(false), nextMulReg1(w-1,0)).toSInt
+    remainder := Cat(nextMulReg1 >> w, Bool(false), nextMulReg1(w-1,0))
 
     count := count + 1
     when (eOut || count === mulw/mulUnroll-1) {
