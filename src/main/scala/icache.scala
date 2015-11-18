@@ -156,9 +156,6 @@ class ICache extends FrontendModule
   require(isPow2(coreInstBytes))
   require(pgIdxBits >= untagBits)
 
-  // tag utilities
-  val tagUtil = new TagUtil(params(TagBits), params(CoreDataBits))
-
   val s_ready :: s_request :: s_refill_wait :: s_refill :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
   val invalidated = Reg(Bool())
