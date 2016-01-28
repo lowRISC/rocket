@@ -5,33 +5,34 @@ package rocket
 import Chisel._
 import uncore._
 import Util._
+import cde.{Parameters, Field}
 
-class PTWReq extends CoreBundle {
+class PTWReq(implicit p: Parameters) extends CoreBundle()(p) {
   val addr = UInt(width = vpnBits)
   val prv = Bits(width = 2)
   val store = Bool()
   val fetch = Bool()
 }
 
-class PTWResp extends CoreBundle {
+class PTWResp(implicit p: Parameters) extends CoreBundle()(p) {
   val error = Bool()
   val pte = new PTE
 }
 
-class TLBPTWIO extends CoreBundle {
+class TLBPTWIO(implicit p: Parameters) extends CoreBundle()(p) {
   val req = Decoupled(new PTWReq)
   val resp = Valid(new PTWResp).flip
   val status = new MStatus().asInput
   val invalidate = Bool(INPUT)
 }
 
-class DatapathPTWIO extends CoreBundle {
+class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p) {
   val ptbr = UInt(INPUT, paddrBits)
   val invalidate = Bool(INPUT)
   val status = new MStatus().asInput
 }
 
-class PTE extends CoreBundle {
+class PTE(implicit p: Parameters) extends CoreBundle()(p) {
   val ppn = Bits(width = ppnBits)
   val reserved_for_software = Bits(width = 3)
   val d = Bool()
@@ -51,10 +52,10 @@ class PTE extends CoreBundle {
     Mux(prv(0), Mux(fetch, sx(), Mux(store, sw(), sr())), Mux(fetch, ux(), Mux(store, uw(), ur())))
 }
 
-class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
+class PTW(n: Int, resetSignal:Bool = null)(implicit p: Parameters) extends CoreModule(resetSignal)(p)
 {
   val io = new Bundle {
-    val requestor = Vec(new TLBPTWIO, n).flip
+    val requestor = Vec(n, new TLBPTWIO).flip
     val mem = new HellaCacheIO
     val dpath = new DatapathPTWIO
   }
@@ -85,10 +86,10 @@ class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   val (pte_cache_hit, pte_cache_data) = {
     val size = log2Up(pgLevels * 2)
     val plru = new PseudoLRU(size)
-    val valid = Reg(Vec(Bool(), size))
+    val valid = Reg(Vec(size, Bool()))
     val validBits = valid.toBits
-    val tags = Mem(UInt(width = paddrBits), size)
-    val data = Mem(UInt(width = ppnBits), size)
+    val tags = Mem(size, UInt(width = paddrBits))
+    val data = Mem(size, UInt(width = ppnBits))
 
     val hits = Vec(tags.map(_ === pte_addr)).toBits & validBits
     val hit = hits.orR

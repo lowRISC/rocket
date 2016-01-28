@@ -5,51 +5,103 @@ package rocket
 import Chisel._
 import junctions._
 import uncore._
-import uncore.constants._
 import Util._
+import cde.{Parameters, Field}
 
-abstract trait CoreParameters extends UsesParameters {
-  val xLen = params(XLen)
-  val paddrBits = params(PAddrBits)
-  val vaddrBits = params(VAddrBits)
-  val pgIdxBits = params(PgIdxBits)
-  val ppnBits = params(PPNBits)
-  val vpnBits = params(VPNBits)
-  val pgLevels = params(PgLevels)
-  val pgLevelBits = params(PgLevelBits)
-  val asIdBits = params(ASIdBits)
+case object UseFPU extends Field[Boolean]
+case object FDivSqrt extends Field[Boolean]
+case object FetchWidth extends Field[Int]
+case object RetireWidth extends Field[Int]
+case object UseVM extends Field[Boolean]
+case object UsePerfCounters extends Field[Boolean]
+case object FastLoadWord extends Field[Boolean]
+case object FastLoadByte extends Field[Boolean]
+case object FastMulDiv extends Field[Boolean]
+case object CoreInstBits extends Field[Int]
+case object CoreDataBits extends Field[Int]
+case object NCustomMRWCSRs extends Field[Int]
 
-  val retireWidth = params(RetireWidth)
-  val coreFetchWidth = params(FetchWidth)
-  val coreInstBits = params(CoreInstBits)
+trait HasCoreParameters extends HasAddrMapParameters {
+  implicit val p: Parameters
+  val xLen = p(XLen)
+
+  val usingVM = p(UseVM)
+  val usingFPU = p(UseFPU)
+  val usingFDivSqrt = p(FDivSqrt)
+  val usingRoCC = !p(BuildRoCC).isEmpty
+  val usingFastMulDiv = p(FastMulDiv)
+  val fastLoadWord = p(FastLoadWord)
+  val fastLoadByte = p(FastLoadByte)
+
+  val retireWidth = p(RetireWidth)
+  val fetchWidth = p(FetchWidth)
+  val coreInstBits = p(CoreInstBits)
   val coreInstBytes = coreInstBits/8
   val coreDataBits = xLen
   val coreDataBytes = coreDataBits/8
-  val coreDCacheReqTagBits = params(CoreDCacheReqTagBits)
+  val coreDCacheReqTagBits = 7 + (2 + (if(!usingRoCC) 0 else 1))
   val coreMaxAddrBits = math.max(ppnBits,vpnBits+1) + pgIdxBits
   val vaddrBitsExtended = vaddrBits + (vaddrBits < xLen).toInt
+  val mmioBase = p(MMIOBase)
+  val nCustomMrwCsrs = p(NCustomMRWCSRs)
 
   // Print out log of committed instructions and their writeback values.
   // Requires post-processing due to out-of-order writebacks.
-  val EnableCommitLog = false
+  val enableCommitLog = false
 
-  if(params(FastLoadByte)) require(params(FastLoadWord))
+  if (fastLoadByte) require(fastLoadWord)
 }
 
-abstract trait RocketCoreParameters extends CoreParameters
-{
-  require(params(FetchWidth) == 1)  // for now...
-  require(params(RetireWidth) == 1) // for now...
+abstract class CoreModule(resetSignal:Bool = null)(implicit val p: Parameters) extends Module(_reset = resetSignal)
+  with HasCoreParameters
+abstract class CoreBundle(implicit val p: Parameters) extends ParameterizedBundle()(p)
+  with HasCoreParameters
+
+class RegFile(n: Int, w: Int, zero: Boolean = false) {
+  private val rf = Mem(n, UInt(width = w))
+  private def access(addr: UInt) = rf(~addr(log2Up(n)-1,0))
+  private val reads = collection.mutable.ArrayBuffer[(UInt,UInt)]()
+  private var canRead = true
+  def read(addr: UInt) = {
+    require(canRead)
+    reads += addr -> Wire(UInt())
+    reads.last._2 := Mux(Bool(zero) && addr === UInt(0), UInt(0), access(addr))
+    reads.last._2
+  }
+  def write(addr: UInt, data: UInt) = {
+    canRead = false
+    when (addr =/= UInt(0)) {
+      access(addr) := data
+      for ((raddr, rdata) <- reads)
+        when (addr === raddr) { rdata := data }
+    }
+  }
 }
 
-abstract class CoreBundle extends Bundle with CoreParameters
-abstract class CoreModule(resetSignal:Bool = null) extends Module(_reset = resetSignal) with CoreParameters
+object ImmGen {
+  def apply(sel: UInt, inst: UInt) = {
+    val sign = Mux(sel === IMM_Z, SInt(0), inst(31).toSInt)
+    val b30_20 = Mux(sel === IMM_U, inst(30,20).toSInt, sign)
+    val b19_12 = Mux(sel =/= IMM_U && sel =/= IMM_UJ, sign, inst(19,12).toSInt)
+    val b11 = Mux(sel === IMM_U || sel === IMM_Z, SInt(0),
+              Mux(sel === IMM_UJ, inst(20).toSInt,
+              Mux(sel === IMM_SB, inst(7).toSInt, sign)))
+    val b10_5 = Mux(sel === IMM_U || sel === IMM_Z, Bits(0), inst(30,25))
+    val b4_1 = Mux(sel === IMM_U, Bits(0),
+               Mux(sel === IMM_S || sel === IMM_SB, inst(11,8),
+               Mux(sel === IMM_Z, inst(19,16), inst(24,21))))
+    val b0 = Mux(sel === IMM_S, inst(7),
+             Mux(sel === IMM_I, inst(20),
+             Mux(sel === IMM_Z, inst(15), Bits(0))))
 
-class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
-{
+    Cat(sign, b30_20, b19_12, b11, b10_5, b4_1, b0).toSInt
+  }
+}
+
+class Rocket(id:Int, resetSignal:Bool = null)(implicit p: Parameters) extends CoreModule(resetSignal)(p) {
   val io = new Bundle {
-    val imem  = new CPUFrontendIO
-    val dmem = new HellaCacheIO
+    val imem  = new FrontendIO()(p.alterPartial({case CacheName => "L1I" }))
+    val dmem = new HellaCacheIO()(p.alterPartial({ case CacheName => "L1D" }))
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
@@ -58,9 +110,9 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   }
 
   var decode_table = XDecode.table
-  if (!params(BuildFPU).isEmpty) decode_table ++= FDecode.table
-  if (!params(BuildFPU).isEmpty && params(FDivSqrt)) decode_table ++= FDivSqrtDecode.table
-  if (!params(BuildRoCC).isEmpty) decode_table ++= RoCCDecode.table
+  if (usingFPU) decode_table ++= FDecode.table
+  if (usingFPU && usingFDivSqrt) decode_table ++= FDivSqrtDecode.table
+  if (usingRoCC) decode_table ++= RoCCDecode.table
 
   val ex_ctrl = Reg(new IntCtrlSigs)
   val mem_ctrl = Reg(new IntCtrlSigs)
@@ -108,7 +160,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 
   // decode stage
   val id_pc = io.imem.resp.bits.pc
-  val id_inst = io.imem.resp.bits.data(0).toBits; require(params(FetchWidth) == 1)
+  val id_inst = io.imem.resp.bits.data(0).toBits; require(fetchWidth == 1)
   val id_ctrl = Wire(new IntCtrlSigs()).decode(id_inst, decode_table)
   val id_raddr3 = id_inst(31,27)
   val id_raddr2 = id_inst(24,20)
@@ -118,12 +170,12 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   val id_reg_fence = Reg(init=Bool(false))
   val id_ren = IndexedSeq(id_ctrl.rxs1, id_ctrl.rxs2)
   val id_raddr = IndexedSeq(id_raddr1, id_raddr2)
-  val rf = new RegFile
+  val rf = new RegFile(31, xLen)
   val id_rs = id_raddr.map(rf.read _)
   val ctrl_killd = Wire(Bool())
 
   val csr = Module(new CSRFile(id))
-  val id_csr_en = id_ctrl.csr != CSR.N
+  val id_csr_en = id_ctrl.csr =/= CSR.N
   val id_system_insn = id_ctrl.csr === CSR.I
   val id_csr_ren = (id_ctrl.csr === CSR.S || id_ctrl.csr === CSR.C) && id_raddr1 === UInt(0)
   val id_csr = Mux(id_csr_ren, CSR.R, id_ctrl.csr)
@@ -141,7 +193,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   val id_amo_rl = id_inst(25)
   val id_fence_next = id_ctrl.fence || id_ctrl.amo && id_amo_rl
   val id_mem_busy = !io.dmem.ordered || io.dmem.req.valid
-  val id_rocc_busy = Bool(!params(BuildRoCC).isEmpty) &&
+  val id_rocc_busy = Bool(usingRoCC) &&
     (io.rocc.busy || ex_reg_valid && ex_ctrl.rocc ||
      mem_reg_valid && mem_ctrl.rocc || wb_reg_valid && wb_ctrl.rocc)
   id_reg_fence := id_fence_next || id_reg_fence && id_mem_busy
@@ -154,8 +206,8 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     (id_illegal_insn,           UInt(Causes.illegal_instruction))))
 
   val dcache_bypass_data =
-    if(params(FastLoadByte)) io.dmem.resp.bits.data_subword
-    else if(params(FastLoadWord)) io.dmem.resp.bits.data
+    if (fastLoadByte) io.dmem.resp.bits.data
+    else if (fastLoadWord) io.dmem.resp.bits.data_word_bypass
     else wb_reg_wdata
 
   // detect bypass opportunities
@@ -171,12 +223,12 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 
   // execute stage
   val bypass_mux = Vec(bypass_sources.map(_._3))
-  val ex_reg_rs_bypass = Reg(Vec(Bool(), id_raddr.size))
-  val ex_reg_rs_lsb = Reg(Vec(UInt(), id_raddr.size))
-  val ex_reg_rs_msb = Reg(Vec(UInt(), id_raddr.size))
+  val ex_reg_rs_bypass = Reg(Vec(id_raddr.size, Bool()))
+  val ex_reg_rs_lsb = Reg(Vec(id_raddr.size, UInt()))
+  val ex_reg_rs_msb = Reg(Vec(id_raddr.size, UInt()))
   val ex_rs = for (i <- 0 until id_raddr.size)
     yield Mux(ex_reg_rs_bypass(i), bypass_mux(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
-  val ex_imm = imm(ex_ctrl.sel_imm, ex_reg_inst)
+  val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
   val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
     A1_RS1 -> ex_rs(0).toSInt,
     A1_PC -> ex_reg_pc.toSInt))
@@ -192,8 +244,9 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   alu.io.in1 := ex_op1.toUInt
   
   // multiplier and divider
-  val div = Module(new MulDiv(mulUnroll = if(params(FastMulDiv)) 8 else 1,
-                       earlyOut = params(FastMulDiv)))
+  val div = Module(new MulDiv(width = xLen,
+                              unroll = if(usingFastMulDiv) 8 else 1,
+                              earlyOut = usingFastMulDiv))
   div.io.req.valid := ex_reg_valid && ex_ctrl.div
   div.io.req.bits.dw := ex_ctrl.alu_dw
   div.io.req.bits.fn := ex_ctrl.alu_fn
@@ -247,11 +300,11 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   // memory stage
   val mem_br_taken = mem_reg_wdata(0)
   val mem_br_target = mem_reg_pc.toSInt +
-    Mux(mem_ctrl.branch && mem_br_taken, imm(IMM_SB, mem_reg_inst),
-    Mux(mem_ctrl.jal, imm(IMM_UJ, mem_reg_inst), SInt(4)))
+    Mux(mem_ctrl.branch && mem_br_taken, ImmGen(IMM_SB, mem_reg_inst),
+    Mux(mem_ctrl.jal, ImmGen(IMM_UJ, mem_reg_inst), SInt(4)))
   val mem_int_wdata = Mux(mem_ctrl.jalr, mem_br_target, mem_reg_wdata.toSInt).toUInt
   val mem_npc = (Mux(mem_ctrl.jalr, Cat(vaSign(mem_reg_wdata, mem_reg_wdata), mem_reg_wdata(vaddrBits-1,0)).toSInt, mem_br_target) & SInt(-2)).toUInt
-  val mem_wrong_npc = mem_npc != ex_reg_pc || !ex_reg_valid
+  val mem_wrong_npc = mem_npc =/= ex_reg_pc || !ex_reg_valid
   val mem_npc_misaligned = mem_npc(1)
   val mem_misprediction = mem_wrong_npc && mem_reg_valid && (mem_ctrl.branch || mem_ctrl.jalr || mem_ctrl.jal)
   val want_take_pc_mem = mem_reg_valid && (mem_misprediction || mem_reg_flush_pipe)
@@ -309,8 +362,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   }
 
   val wb_set_sboard = wb_ctrl.div || wb_dcache_miss || wb_ctrl.rocc
-  val replay_wb_common =
-    io.dmem.resp.bits.nack || wb_reg_replay || csr.io.csr_replay
+  val replay_wb_common = io.dmem.resp.bits.nack || wb_reg_replay
   val wb_rocc_val = wb_reg_valid && wb_ctrl.rocc && !replay_wb_common
   val replay_wb = replay_wb_common || wb_reg_valid && wb_ctrl.rocc && !io.rocc.cmd.ready
   val wb_xcpt = wb_reg_xcpt || csr.io.csr_xcpt
@@ -330,7 +382,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   val ll_wdata = Wire(init = div.io.resp.bits.data)
   val ll_waddr = Wire(init = div.io.resp.bits.tag)
   val ll_wen = Wire(init = div.io.resp.fire())
-  if (!params(BuildRoCC).isEmpty) {
+  if (usingRoCC) {
     io.rocc.resp.ready := !(wb_reg_valid && wb_ctrl.wxd)
     when (io.rocc.resp.fire()) {
       div.io.resp.ready := Bool(false)
@@ -341,7 +393,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   }
   when (dmem_resp_replay && dmem_resp_xpu) {
     div.io.resp.ready := Bool(false)
-    if (!params(BuildRoCC).isEmpty)
+    if (usingRoCC)
       io.rocc.resp.ready := Bool(false)
     ll_waddr := dmem_resp_waddr
     ll_wen := Bool(true)
@@ -351,9 +403,9 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   val wb_wen = wb_valid && wb_ctrl.wxd
   val rf_wen = wb_wen || ll_wen 
   val rf_waddr = Mux(ll_wen, ll_waddr, wb_waddr)
-  val rf_wdata = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data_subword,
+  val rf_wdata = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data,
                  Mux(ll_wen, ll_wdata,
-                 Mux(wb_ctrl.csr != CSR.N, csr.io.rw.rdata,
+                 Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
                  wb_reg_wdata)))
   when (rf_wen) { rf.write(rf_waddr, rf_wdata) }
 
@@ -375,9 +427,9 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   csr.io.rw.cmd := Mux(wb_reg_valid, wb_ctrl.csr, CSR.N)
   csr.io.rw.wdata := wb_reg_wdata
 
-  val hazard_targets = Seq((id_ctrl.rxs1 && id_raddr1 != UInt(0), id_raddr1),
-                           (id_ctrl.rxs2 && id_raddr2 != UInt(0), id_raddr2),
-                           (id_ctrl.wxd && id_waddr != UInt(0), id_waddr))
+  val hazard_targets = Seq((id_ctrl.rxs1 && id_raddr1 =/= UInt(0), id_raddr1),
+                           (id_ctrl.rxs2 && id_raddr2 =/= UInt(0), id_raddr2),
+                           (id_ctrl.wxd  && id_waddr  =/= UInt(0), id_waddr))
   val fp_hazard_targets = Seq((io.fpu.dec.ren1, id_raddr1),
                               (io.fpu.dec.ren2, id_raddr2),
                               (io.fpu.dec.ren3, id_raddr3),
@@ -389,16 +441,16 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   sboard.set(wb_set_sboard && wb_wen, wb_waddr)
 
   // stall for RAW/WAW hazards on CSRs, loads, AMOs, and mul/div in execute stage.
-  val ex_cannot_bypass = ex_ctrl.csr != CSR.N || ex_ctrl.jalr || ex_ctrl.mem || ex_ctrl.div || ex_ctrl.fp || ex_ctrl.rocc
+  val ex_cannot_bypass = ex_ctrl.csr =/= CSR.N || ex_ctrl.jalr || ex_ctrl.mem || ex_ctrl.div || ex_ctrl.fp || ex_ctrl.rocc
   val data_hazard_ex = ex_ctrl.wxd && checkHazards(hazard_targets, _ === ex_waddr)
   val fp_data_hazard_ex = ex_ctrl.wfd && checkHazards(fp_hazard_targets, _ === ex_waddr)
   val id_ex_hazard = ex_reg_valid && (data_hazard_ex && ex_cannot_bypass || fp_data_hazard_ex)
 
   // stall for RAW/WAW hazards on CSRs, LB/LH, and mul/div in memory stage.
   val mem_mem_cmd_bh =
-    if (params(FastLoadWord)) Bool(!params(FastLoadByte)) && mem_reg_slow_bypass
+    if (fastLoadWord) Bool(!fastLoadByte) && mem_reg_slow_bypass
     else Bool(true)
-  val mem_cannot_bypass = mem_ctrl.csr != CSR.N || mem_ctrl.mem && mem_mem_cmd_bh || mem_ctrl.div || mem_ctrl.fp || mem_ctrl.rocc
+  val mem_cannot_bypass = mem_ctrl.csr =/= CSR.N || mem_ctrl.mem && mem_mem_cmd_bh || mem_ctrl.div || mem_ctrl.fp || mem_ctrl.rocc
   val data_hazard_mem = mem_ctrl.wxd && checkHazards(hazard_targets, _ === mem_waddr)
   val fp_data_hazard_mem = mem_ctrl.wfd && checkHazards(fp_hazard_targets, _ === mem_waddr)
   val id_mem_hazard = mem_reg_valid && (data_hazard_mem && mem_cannot_bypass || fp_data_hazard_mem)
@@ -409,7 +461,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   val fp_data_hazard_wb = wb_ctrl.wfd && checkHazards(fp_hazard_targets, _ === wb_waddr)
   val id_wb_hazard = wb_reg_valid && (data_hazard_wb && wb_set_sboard || fp_data_hazard_wb)
 
-  val id_stall_fpu = if (!params(BuildFPU).isEmpty) {
+  val id_stall_fpu = if (usingFPU) {
     val fp_sboard = new Scoreboard(32)
     fp_sboard.set((wb_dcache_miss && wb_ctrl.wfd || io.fpu.sboard_set) && wb_valid, wb_waddr)
     fp_sboard.clear(dmem_resp_replay && dmem_resp_fpu, dmem_resp_waddr)
@@ -422,7 +474,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     id_ex_hazard || id_mem_hazard || id_wb_hazard || id_sboard_hazard ||
     id_ctrl.fp && id_stall_fpu ||
     id_ctrl.mem && !io.dmem.req.ready ||
-    Bool(!params(BuildRoCC).isEmpty) && wb_reg_rocc_pending && id_ctrl.rocc && !io.rocc.cmd.ready ||
+    Bool(usingRoCC) && wb_reg_rocc_pending && id_ctrl.rocc && !io.rocc.cmd.ready ||
     id_do_fence ||
     csr.io.csr_stall
   ctrl_killd := !io.imem.resp.valid || take_pc || ctrl_stalld || csr.io.interrupt
@@ -462,7 +514,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   io.fpu.inst := id_inst
   io.fpu.fromint_data := ex_rs(0)
   io.fpu.dmem_resp_val := dmem_resp_valid && dmem_resp_fpu
-  io.fpu.dmem_resp_data := io.dmem.resp.bits.data
+  io.fpu.dmem_resp_data := io.dmem.resp.bits.data_word_bypass
   io.fpu.dmem_resp_type := io.dmem.resp.bits.typ
   io.fpu.dmem_resp_tag := dmem_resp_waddr
 
@@ -474,7 +526,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   io.dmem.req.bits.addr := Cat(vaSign(ex_rs(0), alu.io.adder_out), alu.io.adder_out(vaddrBits-1,0)).toUInt
   io.dmem.req.bits.tag := Cat(ex_waddr, ex_ctrl.fp)
   io.dmem.req.bits.data := Mux(mem_ctrl.fp, io.fpu.store_data, mem_reg_rs2)
-  require(params(CoreDCacheReqTagBits) >= 6)
+  require(coreDCacheReqTagBits >= 6)
   io.dmem.invalidate_lr := wb_xcpt
 
   io.rocc.cmd.valid := wb_rocc_val
@@ -484,7 +536,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   io.rocc.cmd.bits.rs1 := wb_reg_wdata
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
-  if (EnableCommitLog) {
+  if (enableCommitLog) {
     val pc = Wire(SInt(width=64))
     pc := wb_reg_pc
     val inst = wb_reg_inst
@@ -498,10 +550,10 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
       when (wfd) {
         printf ("%d 0x%x (0x%x) f%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd+UInt(32))
       }
-      .elsewhen (wxd && rd != UInt(0) && has_data) {
+      .elsewhen (wxd && rd =/= UInt(0) && has_data) {
         printf ("%d 0x%x (0x%x) x%d 0x%x\n", priv, pc, inst, rd, rf_wdata)
       }
-      .elsewhen (wxd && rd != UInt(0) && !has_data) {
+      .elsewhen (wxd && rd =/= UInt(0) && !has_data) {
         printf ("%d 0x%x (0x%x) x%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd)
       }
       .otherwise {
@@ -509,7 +561,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
       }
     }
 
-    when (ll_wen && rf_waddr != UInt(0)) {
+    when (ll_wen && rf_waddr =/= UInt(0)) {
       printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
     }
   }
@@ -528,52 +580,14 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   def checkHazards(targets: Seq[(Bool, UInt)], cond: UInt => Bool) =
     targets.map(h => h._1 && cond(h._2)).reduce(_||_)
 
-  def imm(sel: UInt, inst: UInt) = {
-    val sign = Mux(sel === IMM_Z, SInt(0), inst(31).toSInt)
-    val b30_20 = Mux(sel === IMM_U, inst(30,20).toSInt, sign)
-    val b19_12 = Mux(sel != IMM_U && sel != IMM_UJ, sign, inst(19,12).toSInt)
-    val b11 = Mux(sel === IMM_U || sel === IMM_Z, SInt(0),
-              Mux(sel === IMM_UJ, inst(20).toSInt,
-              Mux(sel === IMM_SB, inst(7).toSInt, sign)))
-    val b10_5 = Mux(sel === IMM_U || sel === IMM_Z, Bits(0), inst(30,25))
-    val b4_1 = Mux(sel === IMM_U, Bits(0),
-               Mux(sel === IMM_S || sel === IMM_SB, inst(11,8),
-               Mux(sel === IMM_Z, inst(19,16), inst(24,21))))
-    val b0 = Mux(sel === IMM_S, inst(7),
-             Mux(sel === IMM_I, inst(20),
-             Mux(sel === IMM_Z, inst(15), Bits(0))))
-    
-    Cat(sign, b30_20, b19_12, b11, b10_5, b4_1, b0).toSInt
-  }
-
   def vaSign(a0: UInt, ea: UInt) = {
     // efficient means to compress 64-bit VA into vaddrBits+1 bits
     // (VA is bad if VA(vaddrBits) != VA(vaddrBits-1))
     val a = a0 >> vaddrBits-1
     val e = ea(vaddrBits,vaddrBits-1)
-    Mux(a === UInt(0) || a === UInt(1), e != UInt(0),
+    Mux(a === UInt(0) || a === UInt(1), e =/= UInt(0),
     Mux(a.toSInt === SInt(-1) || a.toSInt === SInt(-2), e.toSInt === SInt(-1),
     e(0)))
-  }
-
-  class RegFile {
-    private val rf = Mem(UInt(width = 64), 31)
-    private val reads = collection.mutable.ArrayBuffer[(UInt,UInt)]()
-    private var canRead = true
-    def read(addr: UInt) = {
-      require(canRead)
-      reads += addr -> Wire(UInt())
-      reads.last._2 := rf(~addr)
-      reads.last._2
-    }
-    def write(addr: UInt, data: UInt) = {
-      canRead = false
-      when (addr != UInt(0)) {
-        rf(~addr) := data
-        for ((raddr, rdata) <- reads)
-          when (addr === raddr) { rdata := data }
-      }
-    }
   }
 
   class Scoreboard(n: Int)
