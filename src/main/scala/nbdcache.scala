@@ -32,7 +32,7 @@ trait HasL1HellaCacheParameters extends HasL1CacheParameters {
   val encRowBits = encDataBits*rowWords
   val sdqDepth = p(StoreDataQueueDepth)
   val nMSHRs = p(NMSHRs)
-  val nIOMSHRs = p(NIOMSHRs)
+  lazy val nIOMSHRs = p(NIOMSHRs)
   val lrscCycles = p(LRSCCycles)
 }
 
