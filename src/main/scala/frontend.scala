@@ -27,7 +27,7 @@ class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   val npc = UInt(INPUT, width = vaddrBitsExtended)
 }
 
-class Frontend(resetSignal:Bool = null)(implicit p: Parameters) extends CoreModule(resetSignal)(p) with HasL1CacheParameters {
+class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CacheParameters {
   val io = new Bundle {
     val cpu = new FrontendIO().flip
     val ptw = new TLBPTWIO()
@@ -42,7 +42,7 @@ class Frontend(resetSignal:Bool = null)(implicit p: Parameters) extends CoreModu
   val s1_pc = ~(~s1_pc_ | (coreInstBytes-1)) // discard PC LSBS (this propagates down the pipeline)
   val s1_same_block = Reg(Bool())
   val s2_valid = Reg(init=Bool(true))
-  val s2_pc = Reg(init=UInt(START_ADDR))
+  val s2_pc = Reg(init=UInt(startAddr))
   val s2_btb_resp_valid = Reg(init=Bool(false))
   val s2_btb_resp_bits = Reg(btb.io.resp.bits)
   val s2_xcpt_if = Reg(init=Bool(false))

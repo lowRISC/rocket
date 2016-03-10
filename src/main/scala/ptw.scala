@@ -52,8 +52,7 @@ class PTE(implicit p: Parameters) extends CoreBundle()(p) {
     Mux(prv(0), Mux(fetch, sx(), Mux(store, sw(), sr())), Mux(fetch, ux(), Mux(store, uw(), ur())))
 }
 
-class PTW(n: Int, resetSignal:Bool = null)(implicit p: Parameters) extends CoreModule(resetSignal)(p)
-{
+class PTW(n: Int)(implicit p: Parameters) extends CoreModule()(p) {
   val io = new Bundle {
     val requestor = Vec(n, new TLBPTWIO).flip
     val mem = new HellaCacheIO

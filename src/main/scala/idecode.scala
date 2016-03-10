@@ -5,7 +5,6 @@ package rocket
 import Chisel._
 import Instructions._
 import uncore.constants.MemoryOpConstants._
-import uncore.constants._
 import ALU._
 
 abstract trait DecodeConstants

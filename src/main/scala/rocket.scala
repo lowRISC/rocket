@@ -10,6 +10,7 @@ import cde.{Parameters, Field}
 
 case object UseFPU extends Field[Boolean]
 case object FDivSqrt extends Field[Boolean]
+case object XLen extends Field[Int]
 case object FetchWidth extends Field[Int]
 case object RetireWidth extends Field[Int]
 case object UseVM extends Field[Boolean]
@@ -19,7 +20,9 @@ case object FastLoadByte extends Field[Boolean]
 case object FastMulDiv extends Field[Boolean]
 case object CoreInstBits extends Field[Int]
 case object CoreDataBits extends Field[Int]
+case object CoreDCacheReqTagBits extends Field[Int]
 case object NCustomMRWCSRs extends Field[Int]
+case object MtvecInit extends Field[BigInt]
 
 trait HasCoreParameters extends HasAddrMapParameters {
   implicit val p: Parameters
@@ -44,15 +47,22 @@ trait HasCoreParameters extends HasAddrMapParameters {
   val vaddrBitsExtended = vaddrBits + (vaddrBits < xLen).toInt
   val mmioBase = p(MMIOBase)
   val nCustomMrwCsrs = p(NCustomMRWCSRs)
+  val roccCsrs = if (p(BuildRoCC).isEmpty) Nil
+    else p(BuildRoCC).flatMap(_.csrs)
+  val nRoccCsrs = p(RoccNCSRs)
+  val nCores = p(HtifKey).nCores
+  val mtvecInit = p(MtvecInit)
+  val startAddr = mtvecInit + 0x100
 
   // Print out log of committed instructions and their writeback values.
   // Requires post-processing due to out-of-order writebacks.
   val enableCommitLog = false
+  val usingPerfCounters = p(UsePerfCounters)
 
   if (fastLoadByte) require(fastLoadWord)
 }
 
-abstract class CoreModule(resetSignal:Bool = null)(implicit val p: Parameters) extends Module(_reset = resetSignal)
+abstract class CoreModule(implicit val p: Parameters) extends Module
   with HasCoreParameters
 abstract class CoreBundle(implicit val p: Parameters) extends ParameterizedBundle()(p)
   with HasCoreParameters
@@ -98,14 +108,13 @@ object ImmGen {
   }
 }
 
-class Rocket(id:Int, resetSignal:Bool = null)(implicit p: Parameters) extends CoreModule(resetSignal)(p) {
+class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val io = new Bundle {
     val imem  = new FrontendIO()(p.alterPartial({case CacheName => "L1I" }))
     val dmem = new HellaCacheIO()(p.alterPartial({ case CacheName => "L1D" }))
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
-    val pcr = new PCRIO
     val irq = Bool(INPUT)
   }
 
@@ -413,8 +422,6 @@ class Rocket(id:Int, resetSignal:Bool = null)(implicit p: Parameters) extends Co
   csr.io.exception := wb_reg_xcpt
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
-  csr.io.pcr <> io.pcr
-  csr.io.irq <> io.irq
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc

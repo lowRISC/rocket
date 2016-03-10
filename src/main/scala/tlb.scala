@@ -148,17 +148,14 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
     plru.access(OHToUInt(tag_cam.io.hits))
   }
 
-//  val paddr = Cat(io.resp.ppn, UInt(0, pgIdxBits))
-//  val addr_ok = addrMap.isValid(paddr)
-//  val addr_prot = addrMap.getProt(paddr)
+  val paddr = Cat(io.resp.ppn, UInt(0, pgIdxBits))
+  val addr_ok = addrMap.isValid(paddr)
+  val addr_prot = addrMap.getProt(paddr)
 
   io.req.ready := state === s_ready
-//  io.resp.xcpt_ld := !addr_ok || !addr_prot.r || bad_va || tlb_hit && !(r_array & tag_cam.io.hits).orR
-//  io.resp.xcpt_st := !addr_ok || !addr_prot.w || bad_va || tlb_hit && !(w_array & tag_cam.io.hits).orR
-//  io.resp.xcpt_if := !addr_ok || !addr_prot.x || bad_va || tlb_hit && !(x_array & tag_cam.io.hits).orR
-  io.resp.xcpt_ld := bad_va || tlb_hit && !(r_array & tag_cam.io.hits).orR
-  io.resp.xcpt_st := bad_va || tlb_hit && !(w_array & tag_cam.io.hits).orR
-  io.resp.xcpt_if := bad_va || tlb_hit && !(x_array & tag_cam.io.hits).orR
+  io.resp.xcpt_ld := !addr_ok || !addr_prot.r || bad_va || tlb_hit && !(r_array & tag_cam.io.hits).orR
+  io.resp.xcpt_st := !addr_ok || !addr_prot.w || bad_va || tlb_hit && !(w_array & tag_cam.io.hits).orR
+  io.resp.xcpt_if := !addr_ok || !addr_prot.x || bad_va || tlb_hit && !(x_array & tag_cam.io.hits).orR
   io.resp.miss := tlb_miss
   io.resp.ppn := Mux(vm_enabled, Mux1H(tag_cam.io.hits, tag_ram), io.req.bits.vpn(ppnBits-1,0))
   io.resp.hit_idx := tag_cam.io.hits
@@ -195,4 +192,28 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
   when (io.ptw.resp.valid) {
     state := s_ready
   }
+}
+
+class DecoupledTLB(implicit p: Parameters) extends Module {
+  val io = new Bundle {
+    val req = Decoupled(new TLBReq).flip
+    val resp = Decoupled(new TLBResp)
+    val ptw = new TLBPTWIO
+  }
+
+  val reqq = Queue(io.req)
+  val tlb = Module(new TLB)
+
+  val resp_helper = DecoupledHelper(
+    reqq.valid, tlb.io.req.ready, io.resp.ready)
+  val tlb_miss = tlb.io.resp.miss
+
+  tlb.io.req.valid := resp_helper.fire(tlb.io.req.ready)
+  tlb.io.req.bits := reqq.bits
+  reqq.ready := resp_helper.fire(reqq.valid, !tlb_miss)
+
+  io.resp.valid := resp_helper.fire(io.resp.ready, !tlb_miss)
+  io.resp.bits := tlb.io.resp
+
+  io.ptw <> tlb.io.ptw
 }
