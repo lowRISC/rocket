@@ -70,8 +70,6 @@ object CSR
 }
 
 class CSRFileIO(implicit p: Parameters) extends CoreBundle {
-  val host = new HIFIO
-  val mmcsr = new SmiIO(64, 12).flip
   val rw = new Bundle {
     val addr = UInt(INPUT, CSR.ADDRSZ)
     val cmd = Bits(INPUT, CSR.SZ)
@@ -99,6 +97,9 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle {
   val rocc = new RoCCInterface().flip
   val interrupt = Bool(OUTPUT)
   val interrupt_cause = UInt(OUTPUT, xLen)
+
+  val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
+  val irq = Bool(INPUT)
 }
 
 class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
@@ -252,8 +253,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_mapping += CSRs.stvec -> reg_stvec.sextTo(xLen)
   }
 
-  for (i <- 0 until p(NCustomMRWCSRs)) {
-    val addr:Int = CSRs.mrwbase + i // turn 0x790 into parameter CustomMRWCSRBase?
+  for (i <- 0 until nCustomMrwCsrs) {
+    val addr = CSRs.mrwbase + i // turn 0x790 into parameter CustomMRWCSRBase?
     require(!read_mapping.contains(addr), "custom MRW CSR address " + i + " is already in use")         // !!!!! double check Wei 25/02/2016
     read_mapping += addr -> io.custom_mrw_csrs(i)
   }

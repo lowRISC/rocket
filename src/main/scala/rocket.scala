@@ -115,6 +115,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
+
+    val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
     val irq = Bool(INPUT)
   }
 
@@ -422,6 +424,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   csr.io.exception := wb_reg_xcpt
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
+  csr.io.mmcsr <> io.mmcsr
+  csr.io.irq <> io.irq
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc

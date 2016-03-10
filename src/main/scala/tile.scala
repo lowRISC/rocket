@@ -20,6 +20,7 @@ case class RoccParameters(
 
 abstract class Tile(resetSignal: Bool = null)
                    (implicit p: Parameters) extends Module(_reset = resetSignal) {
+  val xLen = p(XLen)
   val buildRocc = p(BuildRoCC)
   val usingRocc = !buildRocc.isEmpty
   val nRocc = buildRocc.size
@@ -33,6 +34,8 @@ abstract class Tile(resetSignal: Bool = null)
     val cached = Vec(nCachedTileLinkPorts, new ClientTileLinkIO)
     val uncached = Vec(nUncachedTileLinkPorts, new ClientUncachedTileLinkIO)
     val dma = new DmaIO
+
+    val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
     val irq = Bool(INPUT)
   }
 }
@@ -56,6 +59,7 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
 
   icache.io.cpu <> core.io.imem
   core.io.ptw <> ptw.io.dpath
+  core.io.mmcsr <> io.mmcsr
   core.io.irq <> io.irq
 
   val fpuOpt = if (p(UseFPU)) Some(Module(new FPU)) else None
