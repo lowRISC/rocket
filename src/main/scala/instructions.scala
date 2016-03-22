@@ -301,6 +301,8 @@ object CSRs {
   // cbase(0), mask(1)
   // 0x7BF update
 
+  val swtrace = 0x8f0
+
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
     res += fflags
@@ -359,6 +361,7 @@ object CSRs {
     res += mfromhost
     res += mreset
     res += send_ipi
+    res += swtrace
     res.toArray
   }
   val all32 = {

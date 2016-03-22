@@ -88,6 +88,11 @@ class CSRFileIO extends CoreBundle {
   // read/write configuration registers in other modules
   val pcr = new PCRIO
   val irq = Bool(INPUT)
+
+  // debugger
+  val debug_csr_wdata = UInt(OUTPUT, width=xLen)
+  val debug_csr_waddr = UInt(OUTPUT, width=12)
+  val debug_csr_wen = Bool(OUTPUT)
 }
 
 class CSRFile(id:Int) extends CoreModule
@@ -512,5 +517,10 @@ class CSRFile(id:Int) extends CoreModule
       reg_fromhost := io.pcr.update.bits.data
     }
   }
+
+  // debug
+  io.debug_csr_wdata := wdata
+  io.debug_csr_waddr := addr
+  io.debug_csr_wen := wen
 
 }

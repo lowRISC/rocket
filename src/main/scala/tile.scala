@@ -4,6 +4,7 @@ package rocket
 
 import Chisel._
 import uncore._
+import open_soc_debug._
 import Util._
 
 abstract class Tile extends Module {
@@ -14,6 +15,7 @@ abstract class Tile extends Module {
     val pcr = new PCRIO
     val irq = Bool(INPUT)
     val soft_reset = Bool(INPUT)
+    val dbgnet = Vec(2, new DiiIO)       // debug network
   }
 }
 
@@ -68,4 +70,7 @@ class RocketTile(id: Int = 0) extends Tile {
     ptw.io.requestor(4) <> rocc.io.pptw
     memArb.io.out
   }.getOrElse(icache.io.mem)
+
+  // debug
+  io.dbgnet <> core.io.dbgnet
 }
