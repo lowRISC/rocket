@@ -524,6 +524,25 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
          wb_reg_inst, wb_reg_inst)
   }
 
+  if(params(UseDebug)) {
+
+    // software tracer module
+    val stm = Module(new RocketSoftwareTracer)
+
+    stm.io.retire := wb_valid
+    stm.io.reg_wdata := rf_wdata
+    stm.io.reg_waddr := rf_waddr
+    stm.io.reg_wen := rf_wen
+    stm.io.csr_wdata := csr.io.debug_csr_wdata
+    stm.io.csr_waddr := csr.io.debug_csr_waddr
+    stm.io.csr_wen := csr.io.debug_csr_wen
+
+    // the part of ring network inside a Rocket core
+    val network = Module(new RocketDebugNetwork(id))
+    network.io.net <> io.dbgnet
+    network.io.stm <> stm.io.net
+  }
+
   def checkExceptions(x: Seq[(Bool, UInt)]) =
     (x.map(_._1).reduce(_||_), PriorityMux(x))
 
@@ -594,25 +613,6 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
       ens = ens || en
       when (ens) { r := _next }
     }
-  }
-
-  if(params(UseDebug)) {
-
-    // software tracer module
-    val stm = Module(new RocketSoftwareTracer)
-
-    stm.io.retire := wb_valid
-    stm.io.reg_wdata := rf_wdata
-    stm.io.reg_waddr := rf_waddr
-    stm.io.reg_wen := rf_wen
-    stm.io.csr_wdata := csr.io.debug_csr_wdata
-    stm.io.csr_waddr := csr.io.debug_csr_waddr
-    stm.io.csr_wen := csr.io.debug_csr_wen
-
-    // the part of ring network inside a Rocket core
-    val network = Module(new RocketDebugNetwork)
-    network.io.net <> io.dbgnet
-    network.io.stm <> stm.io.net
   }
 
 }
