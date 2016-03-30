@@ -526,8 +526,11 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 
   if(params(UseDebug)) {
 
+    // core tracer module
+    val ctm = Module(new RocketCoreTracer(id, isRead, isWrite, true))
+
     // software tracer module
-    val stm = Module(new RocketSoftwareTracer)
+    val stm = Module(new RocketSoftwareTracer(id, true))
 
     stm.io.retire := wb_valid
     stm.io.reg_wdata := rf_wdata
@@ -540,6 +543,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     // the part of ring network inside a Rocket core
     val network = Module(new RocketDebugNetwork(id))
     network.io.net <> io.dbgnet
+    network.io.ctm <> ctm.io.net
     network.io.stm <> stm.io.net
   }
 
