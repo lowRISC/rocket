@@ -527,11 +527,44 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   if(params(UseDebug)) {
 
     // core tracer module
-    val ctm = Module(new RocketCoreTracer(id, isRead, isWrite, true))
+    def isCsrRead(cmd:UInt, addr:UInt):Bool = cmd =/= CSR.N && cmd =/= CSR.I
+    def isCsrWrite(cmd:UInt, addr:UInt):Bool =
+      cmd =/= CSR.N && cmd =/= CSR.I && cmd =/= CSR.R && !addr(11,10).andR
+    def isCsrTrap(cmd:UInt, addr:UInt):Bool =
+      cmd =/= CSR.I && (!addr(8) || addr(1,0) === UInt(0)) // break, call, eret
+
+    val ctm = Module(new RocketCoreTracer(
+      id, isRead, isWrite,
+      isCsrRead, isCsrWrite, isCsrTrap,
+      true))
+    ctm.io.wb_valid := wb_valid
+    ctm.io.wb_pc := wb_reg_pc
+    ctm.io.wb_wdata := rf_wdata
+    ctm.io.wb_jal := wb_ctrl.jal
+    ctm.io.wb_jalr := wb_ctrl.jalr
+    ctm.io.wb_br := wb_ctrl.branch
+    ctm.io.wb_mem := wb_ctrl.mem
+    ctm.io.wb_mem_cmd := wb_ctrl.mem_cmd
+    ctm.io.wb_xcpt := wb_reg_xcpt
+    ctm.io.wb_csr := wb_ctrl.csr =/= CSR.N
+    ctm.io.wb_csr_cmd := wb_ctrl.csr
+    ctm.io.wb_csr_addr := csr.io.rw.addr
+    ctm.io.mem_br_taken := mem_br_taken
+    ctm.io.mem_npc := mem_npc
+    ctm.io.csr_eret := csr.io.eret
+    ctm.io.csr_xcpt := csr.io.csr_xcpt
+    ctm.io.csr_prv := csr.io.status.prv
+    ctm.io.csr_wdata := wb_reg_wdata
+    ctm.io.csr_evec := csr.io.evec
+    ctm.io.csr_time := csr.io.time
+    ctm.io.dmem_has_data := dmem_resp_valid
+    ctm.io.dmem_replay := io.dmem.resp.bits.replay
+    ctm.io.dmem_rdata := io.dmem.resp.bits.data_subword
+    ctm.io.dmem_wdata := io.dmem.resp.bits.store_data
+    ctm.io.dmem_addr := io.dmem.resp.bits.addr
 
     // software tracer module
     val stm = Module(new RocketSoftwareTracer(id, true))
-
     stm.io.retire := wb_valid
     stm.io.reg_wdata := rf_wdata
     stm.io.reg_waddr := rf_waddr
