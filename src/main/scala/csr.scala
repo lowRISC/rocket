@@ -5,6 +5,7 @@ package rocket
 import Chisel._
 import Util._
 import Instructions._
+import junctions._
 import cde.{Parameters, Field}
 import uncore._
 import scala.math._
@@ -426,8 +427,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.instretw)) { reg_instret := wdata }
     when (decoded_addr(CSRs.mtimecmp)) { reg_mtimecmp := wdata; reg_mip.mtip := false }
     when (decoded_addr(CSRs.mtime))    { reg_time := wdata }
-    when (decoded_addr(CSRs.mfromhost)){ when (reg_fromhost === UInt(0) || !host_csr_req_fire) { reg_fromhost := wdata } }
-    when (decoded_addr(CSRs.mtohost))  { when (reg_tohost === UInt(0) || host_csr_req_fire) { reg_tohost := wdata } }
+    when (decoded_addr(CSRs.mfromhost)){ when (reg_fromhost === UInt(0)) { reg_fromhost := wdata } }
+    when (decoded_addr(CSRs.mtohost))  { when (reg_tohost === UInt(0)) { reg_tohost := wdata } }
     when (decoded_addr(CSRs.stats))    { reg_stats := wdata(0) }
     when (decoded_addr(CSRs.mtvec))    { reg_mtvec := wdata & ~UInt("b11") }
     if (usingVM) {

@@ -50,7 +50,7 @@ trait HasCoreParameters extends HasAddrMapParameters {
   val roccCsrs = if (p(BuildRoCC).isEmpty) Nil
     else p(BuildRoCC).flatMap(_.csrs)
   val nRoccCsrs = p(RoccNCSRs)
-  val nCores = p(HtifKey).nCores
+  val nCores = p(NTiles)
   val mtvecInit = p(MtvecInit)
   val startAddr = mtvecInit + 0x100
 

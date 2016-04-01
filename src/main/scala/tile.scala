@@ -5,6 +5,7 @@ package rocket
 import Chisel._
 import uncore._
 import Util._
+import junctions._
 import cde.{Parameters, Field}
 
 case object CoreName extends Field[String]
@@ -90,7 +91,7 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
       rocc.io.cmd <> cmdRouter.io.out(i)
       rocc.io.s := core.io.rocc.s
       rocc.io.exception := core.io.rocc.exception
-      rocc.io.host_id := io.host.id
+      rocc.io.host_id := id
       dcIF.io.requestor <> rocc.io.mem
       dcArb.io.requestor(2 + i) <> dcIF.io.cache
       uncachedArb.io.in(1 + i) <> rocc.io.autl
