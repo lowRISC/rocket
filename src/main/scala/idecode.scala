@@ -301,3 +301,18 @@ object RoCCDecode extends DecodeConstants
     CUSTOM3_RD_RS1->    List(Y,    N,Y,N,N,N,N,Y,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,      MT_X, N,N,N,N,N,Y,CSR.N,N,N,N),
     CUSTOM3_RD_RS1_RS2->List(Y,    N,Y,N,N,N,Y,Y,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,      MT_X, N,N,N,N,N,Y,CSR.N,N,N,N))
 }
+
+object TagDecode extends DecodeConstants
+{
+  val table: Array[(BitPat, List[BitPat])] = Array(
+                //               jal                                                                           fence.i
+                //               | jalr                                                            mul_val     | sret
+                //         fp_val| | renx2                                                         | div_val   | | syscall
+                //         | rocc| | | renx1     s_alu1                          mem_val           | | wen     | | |
+                //   val   | | br| | | | s_alu2  |       imm    dw     alu       | mem_cmd mem_type| | | csr   | | | replay_next
+                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | fence
+                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | amo
+                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | |
+    LTAG->      List(xpr64,N,N,N,N,N,N,Y,A2_IMM, A1_RS1, IMM_I, DW_XPR,FN_ADD,   Y,M_XRD,    MT_T, N,N,N,N,N,Y,CSR.N,N,N,N),
+    STAG->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XWR,    MT_T, N,N,N,N,N,N,CSR.N,N,N,N))
+}

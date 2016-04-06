@@ -18,6 +18,11 @@ abstract trait L1HellaCacheParameters extends L1CacheParameters {
   val doNarrowRead = coreDataBits * nWays % rowBits == 0
   val encDataBits = code.width(coreDataBits)
   val encRowBits = encDataBits*rowWords
+  //TAG EXTENSION
+  val memTagBits = params(TagBits)
+  val taggedDataBits = coreDataBits + params(TagBits)
+  val encTaggedDataBits = code.width(taggedDataBits)
+  val encTaggedRowBits = encTaggedDataBits*rowWords
   val sdqDepth = params(StoreDataQueueDepth)
   val nMSHRs = params(NMSHRs)
 }
@@ -88,7 +93,7 @@ class L1DataReadReq extends L1HellaCacheBundle {
 
 class L1DataWriteReq extends L1DataReadReq {
   val wmask  = Bits(width = rowWords)
-  val data   = Bits(width = encRowBits)
+  val data   = Bits(width = encTaggedRowBits)
 }
 
 class L1RefillReq extends L1DataReadReq
@@ -123,6 +128,48 @@ class ProbeInternal extends Probe with HasClientTransactionId
 class WritebackReq extends Release with CacheParameters {
   val way_en = Bits(width = nWays)
 }
+
+class L1StoreGen(typ: Bits, addr: Bits, dat: Bits, tagWidth: Int) {
+  val byte = typ === MT_B || typ === MT_BU
+  val half = typ === MT_H || typ === MT_HU
+  val word = typ === MT_W || typ === MT_WU
+  val tag = typ === MT_T
+  val tag_mask = SInt(-1, tagWidth).toBits
+
+  val byte_mask =
+    Mux(byte, Bits(  1) <<     addr(2,0),
+      Mux(half, Bits(  3) << Cat(addr(2,1), Bits(0,1)),
+        Mux(word, Bits( 15) << Cat(addr(2),   Bits(0,2)),
+          Bits(255))))
+
+  def mask =
+    Mux(tag,  tag_mask  << 64,
+      FillInterleaved(8, byte_mask))
+
+  def data =
+    Mux(tag,  dat(tagWidth-1,0) << 64,
+      Mux(byte, Fill(8, dat( 7,0)),
+        Mux(half, Fill(4, dat(15,0)),
+          wordData)))
+
+  lazy val wordData =
+    Mux(word, Fill(2, dat(31,0)),
+      dat)
+}
+
+class L1LoadGen(typ: Bits, addr: Bits, dat: Bits, zero: Bool, tagWidth: Int) {
+  val t = new L1StoreGen(typ, addr, dat, tagWidth)
+  val sign = typ === MT_B || typ === MT_H || typ === MT_W || typ === MT_D
+
+  val wordShift = Mux(addr(2), dat(63,32), dat(31,0))
+  val word = Cat(Mux(t.word, Fill(32, sign && wordShift(31)), dat(63,32)), wordShift)
+  val halfShift = Mux(addr(1), word(31,16), word(15,0))
+  val half = Cat(Mux(t.half, Fill(48, sign && halfShift(15)), word(63,16)), halfShift)
+  val byteShift = Mux(zero, UInt(0), Mux(addr(0), half(15,8), half(7,0)))
+  val tag = Cat(Bits(0,64-tagWidth), dat(63+tagWidth, 64))
+  val byte = Mux(t.tag,  tag, Cat(Mux(zero || t.byte, Fill(56, sign && byteShift(7)), half(63,8)), byteShift))
+}
+
 
 /** IO miss handler */
 class IOMSHR extends L1HellaCacheModule {
@@ -460,7 +507,7 @@ class WritebackUnit extends L1HellaCacheModule {
     val req = Decoupled(new WritebackReq).flip
     val meta_read = Decoupled(new L1MetaReadReq)
     val data_req = Decoupled(new L1DataReadReq)
-    val data_resp = Bits(INPUT, encRowBits)
+    val data_resp = Bits(INPUT, encTaggedRowBits)
     val release = Decoupled(new Release)
   }
 
@@ -526,7 +573,7 @@ class WritebackUnit extends L1HellaCacheModule {
     //   then buffer enough data_resps to make a whole beat
     val data_buf = Reg(Bits())
     when(active && r2_data_req_fired && !beat_done) {
-      data_buf := Cat(io.data_resp, data_buf((refillCyclesPerBeat-1)*encRowBits-1, encRowBits))
+      data_buf := Cat(io.data_resp, data_buf((refillCyclesPerBeat-1)*encTaggedRowBits-1, encTaggedRowBits))
       buf_v := (if(refillCyclesPerBeat > 2)
                   Cat(UInt(1), buf_v(refillCyclesPerBeat-2,1))
                 else UInt(1))
@@ -612,7 +659,7 @@ class DataArray extends L1HellaCacheModule {
   val io = new Bundle {
     val read = Decoupled(new L1DataReadReq).flip
     val write = Decoupled(new L1DataWriteReq).flip
-    val resp = Vec(Bits(OUTPUT, encRowBits), nWays)
+    val resp = Vec(Bits(OUTPUT, encTaggedRowBits), nWays)
   }
 
   val waddr = io.write.bits.addr >> rowOffBits
@@ -622,18 +669,18 @@ class DataArray extends L1HellaCacheModule {
     for (w <- 0 until nWays by rowWords) {
       val wway_en = io.write.bits.way_en(w+rowWords-1,w)
       val rway_en = io.read.bits.way_en(w+rowWords-1,w)
-      val resp = Wire(Vec(Bits(width = encRowBits), rowWords))
+      val resp = Wire(Vec(Bits(width = encTaggedRowBits), rowWords))
       val r_raddr = RegEnable(io.read.bits.addr, io.read.valid)
       for (p <- 0 until resp.size) {
-        val array = SeqMem(Vec(Bits(width=encDataBits), rowWords), nSets*refillCycles)
+        val array = SeqMem(Vec(Bits(width=encTaggedDataBits), rowWords), nSets*refillCycles)
         when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) {
-          val data = Vec.fill(rowWords)(io.write.bits.data(encDataBits*(p+1)-1,encDataBits*p))
+          val data = Vec.fill(rowWords)(io.write.bits.data(encTaggedDataBits*(p+1)-1,encTaggedDataBits*p))
           array.write(waddr, data, wway_en.toBools)
         }
         resp(p) := array.read(raddr, rway_en.orR && io.read.valid).toBits
       }
       for (dw <- 0 until rowWords) {
-        val r = Vec(resp.map(_(encDataBits*(dw+1)-1,encDataBits*dw)))
+        val r = Vec(resp.map(_(encTaggedDataBits*(dw+1)-1,encTaggedDataBits*dw)))
         val resp_mux =
           if (r.size == 1) r
           else Vec(r(r_raddr(rowOffBits-1,wordOffBits)), r.tail:_*)
@@ -642,9 +689,9 @@ class DataArray extends L1HellaCacheModule {
     }
   } else {
     for (w <- 0 until nWays) {
-      val array = SeqMem(Vec(Bits(width=encDataBits), rowWords), nSets*refillCycles)
+      val array = SeqMem(Vec(Bits(width=encTaggedDataBits), rowWords), nSets*refillCycles)
       when (io.write.bits.way_en(w) && io.write.valid) {
-        val data = Vec.tabulate(rowWords)(i => io.write.bits.data(encDataBits*(i+1)-1,encDataBits*i))
+        val data = Vec.tabulate(rowWords)(i => io.write.bits.data(encTaggedDataBits*(i+1)-1,encTaggedDataBits*i))
         array.write(waddr, data, io.write.bits.wmask.toBools)
       }
       io.resp(w) := array.read(raddr, io.read.bits.way_en(w) && io.read.valid).toBits
@@ -653,6 +700,50 @@ class DataArray extends L1HellaCacheModule {
 
   io.read.ready := Bool(true)
   io.write.ready := Bool(true)
+}
+
+class L1AMOALU extends L1HellaCacheModule {
+  val operandBits = params(XLen)
+  require(operandBits == 64)
+  val io = new Bundle {
+    val addr = Bits(INPUT, blockOffBits)
+    val cmd = Bits(INPUT, M_SZ)
+    val typ = Bits(INPUT, MT_SZ)
+    val lhs = Bits(INPUT, taggedDataBits)
+    val rhs = Bits(INPUT, taggedDataBits)
+    val out = Bits(OUTPUT, taggedDataBits)
+  }
+
+  val storegen = new L1StoreGen(io.typ, io.addr, io.rhs, memTagBits)
+  val rhs = storegen.wordData
+
+  val sgned = io.cmd === M_XA_MIN || io.cmd === M_XA_MAX
+  val max = io.cmd === M_XA_MAX || io.cmd === M_XA_MAXU
+  val min = io.cmd === M_XA_MIN || io.cmd === M_XA_MINU
+  val word = io.typ === MT_W || io.typ === MT_WU || // Logic minimization:
+    io.typ === MT_B || io.typ === MT_BU
+
+  val mask = ~UInt(0,64) ^ (io.addr(2) << 31)
+  val adder_out = (io.lhs & mask).toUInt + (rhs & mask)
+
+  val cmp_lhs  = Mux(word && !io.addr(2), io.lhs(31), io.lhs(63))
+  val cmp_rhs  = Mux(word && !io.addr(2), rhs(31), rhs(63))
+  val lt_lo = io.lhs(31,0) < rhs(31,0)
+  val lt_hi = io.lhs(63,32) < rhs(63,32)
+  val eq_hi = io.lhs(63,32) === rhs(63,32)
+  val lt = Mux(word, Mux(io.addr(2), lt_hi, lt_lo), lt_hi || eq_hi && lt_lo)
+  val less = Mux(cmp_lhs === cmp_rhs, lt, Mux(sgned, cmp_lhs, cmp_rhs))
+
+  val out = Mux(io.cmd === M_XA_ADD, adder_out,
+    Mux(io.cmd === M_XA_AND, io.lhs & rhs,
+      Mux(io.cmd === M_XA_OR,  io.lhs | rhs,
+        Mux(io.cmd === M_XA_XOR, io.lhs ^ rhs,
+          Mux(Mux(less, min, max), io.lhs,
+            storegen.data)))))
+
+  //val wmask = FillInterleaved(8, storegen.mask)
+  val wmask = storegen.mask
+  io.out := wmask & out | ~wmask & io.lhs
 }
 
 class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal) {
@@ -696,6 +787,7 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   val s3_valid = Reg(init=Bool(false))
   val s3_req = Reg(io.cpu.req.bits)
   val s3_way = Reg(Bits())
+  val s3_req_data = Reg(Bits(width=taggedDataBits))  // do not use the data in s2_req as tag will be lost
 
   val s1_recycled = RegEnable(s2_recycle, Bool(false), s1_clk_en)
   val s1_read  = isRead(s1_req.cmd)
@@ -750,8 +842,8 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
 
   val misaligned =
     (((s1_req.typ === MT_H) || (s1_req.typ === MT_HU)) && (s1_req.addr(0) != Bits(0))) ||
-    (((s1_req.typ === MT_W) || (s1_req.typ === MT_WU)) && (s1_req.addr(1,0) != Bits(0))) ||
-    ((s1_req.typ === MT_D) && (s1_req.addr(2,0) != Bits(0)))
+      (((s1_req.typ === MT_W) || (s1_req.typ === MT_WU)) && (s1_req.addr(1,0) != Bits(0))) ||
+      (((s1_req.typ === MT_D) || (s1_req.typ === MT_T )) && (s1_req.addr(2,0) != Bits(0)))
     
   io.cpu.xcpt.ma.ld := s1_read && misaligned
   io.cpu.xcpt.ma.st := s1_write && misaligned
@@ -777,7 +869,7 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   data.io.write.valid := writeArb.io.out.valid
   writeArb.io.out.ready := data.io.write.ready
   data.io.write.bits := writeArb.io.out.bits
-  val wdata_encoded = (0 until rowWords).map(i => code.encode(writeArb.io.out.bits.data(coreDataBits*(i+1)-1,coreDataBits*i)))
+  val wdata_encoded = (0 until rowWords).map(i => code.encode(writeArb.io.out.bits.data(taggedDataBits*(i+1)-1,taggedDataBits*i)))
   data.io.write.bits.data := Vec(wdata_encoded).toBits
 
   // tag read for new requests
@@ -831,18 +923,18 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   when (io.cpu.invalidate_lr) { lrsc_count := 0 }
 
   // s2 data from data array
-  val s2_data = Wire(Vec(Bits(width=encRowBits), nWays))
+  val s2_data = Wire(Vec(Bits(width=encTaggedRowBits), nWays))
   for (w <- 0 until nWays) {
-    val regs = Reg(Vec(Bits(width = encDataBits), rowWords))
+    val regs = Reg(Vec(Bits(width = encTaggedRowBits), rowWords))
     val en1 = s1_clk_en && s1_tag_eq_way(w)
     for (i <- 0 until regs.size) {
       val en = en1 && ((Bool(i == 0) || !Bool(doNarrowRead)) || s1_writeback)
-      when (en) { regs(i) := data.io.resp(w) >> encDataBits*i }
+      when (en) { regs(i) := data.io.resp(w) >> encTaggedDataBits*i }
     }
     s2_data(w) := regs.toBits
   }
   val s2_data_muxed = Mux1H(s2_tag_match_way, s2_data)
-  val s2_data_decoded = (0 until rowWords).map(i => code.decode(s2_data_muxed(encDataBits*(i+1)-1,encDataBits*i)))
+  val s2_data_decoded = (0 until rowWords).map(i => code.decode(s2_data_muxed(encTaggedDataBits*(i+1)-1,encTaggedDataBits*i)))
   val s2_data_corrected = Vec(s2_data_decoded.map(_.corrected)).toBits
   val s2_data_uncorrected = Vec(s2_data_decoded.map(_.uncorrected)).toBits
   val s2_word_idx = if(doNarrowRead) UInt(0) else s2_req.addr(log2Up(rowWords*coreDataBytes)-1,3)
@@ -853,10 +945,10 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
 
   // store/amo hits
   s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd)
-  val amoalu = Module(new AMOALU)
+  val amoalu = Module(new L1AMOALU)
   when ((s2_valid || s2_replay) && (isWrite(s2_req.cmd) || s2_data_correctable)) {
     s3_req := s2_req
-    s3_req.data := Mux(s2_data_correctable, s2_data_corrected, amoalu.io.out)
+    s3_req_data := Mux(s2_data_correctable, s2_data_corrected(s2_word_idx), amoalu.io.out)
     s3_way := s2_tag_match_way
   }
 
@@ -864,7 +956,7 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   val rowIdx = s3_req.addr(rowOffBits-1,offsetlsb).toUInt
   val rowWMask = UInt(1) << (if(rowOffBits > offsetlsb) rowIdx else UInt(0))
   writeArb.io.in(0).bits.wmask := rowWMask
-  writeArb.io.in(0).bits.data := Fill(rowWords, s3_req.data)
+  writeArb.io.in(0).bits.data := Fill(rowWords, s3_req_data)
   writeArb.io.in(0).valid := s3_valid
   writeArb.io.in(0).bits.way_en :=  s3_way
 
@@ -934,7 +1026,10 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   writeArb.io.in(1).bits.addr := mshrs.io.refill.addr
   writeArb.io.in(1).bits.way_en := mshrs.io.refill.way_en
   writeArb.io.in(1).bits.wmask := ~UInt(0, nWays)
-  writeArb.io.in(1).bits.data := narrow_grant.bits.data(encRowBits-1,0)
+
+  // tag utilities
+  val tagUtil = new TagUtil(params(TagBits), coreDataBits)
+    writeArb.io.in(1).bits.data := narrow_grant.bits.data(encTaggedRowBits-1,0)
   data.io.read <> readArb.io.out
   readArb.io.out.ready := !narrow_grant.valid || narrow_grant.ready // insert bubble if refill gets blocked
 
@@ -951,12 +1046,13 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   // store->load bypassing
   val s4_valid = Reg(next=s3_valid, init=Bool(false))
   val s4_req = RegEnable(s3_req, s3_valid && metaReadArb.io.out.valid)
+  val s4_req_data = RegEnable(s3_req_data, s3_valid && metaReadArb.io.out.valid)
   val bypasses = List(
     ((s2_valid_masked || s2_replay) && !s2_sc_fail || s2_io_replay, s2_req, amoalu.io.out),
-    (s3_valid, s3_req, s3_req.data),
-    (s4_valid, s4_req, s4_req.data)
+    (s3_valid, s3_req, s3_req_data),
+    (s4_valid, s4_req, s4_req_data)
   ).map(r => (r._1 && (s1_addr >> wordOffBits === r._2.addr >> wordOffBits) && isWrite(r._2.cmd), r._3))
-  val s2_store_bypass_data = Reg(Bits(width = coreDataBits))
+  val s2_store_bypass_data = Reg(Bits(width = taggedDataBits))
   val s2_store_bypass = Reg(Bool())
   when (s1_clk_en) {
     s2_store_bypass := false
@@ -970,7 +1066,7 @@ class HellaCache(resetSignal:Bool = null) extends L1HellaCacheModule(resetSignal
   val s2_data_word_prebypass = s2_data_uncorrected >> Cat(s2_word_idx, Bits(0,log2Up(coreDataBits)))
   val s2_data_word = Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass)
   val loadgen_data = Mux(s2_io_replay, s2_io_data, s2_data_word)
-  val loadgen = new LoadGen(s2_req.typ, s2_req.addr, loadgen_data, s2_sc)
+  val loadgen = new L1LoadGen(s2_req.typ, s2_req.addr, loadgen_data, s2_sc, memTagBits)
   
   amoalu.io.addr := s2_req.addr
   amoalu.io.cmd := s2_req.cmd

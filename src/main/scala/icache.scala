@@ -156,6 +156,9 @@ class ICache extends FrontendModule
   require(isPow2(coreInstBytes))
   require(pgIdxBits >= untagBits)
 
+  // tag utilities
+  val tagUtil = new TagUtil(params(TagBits), coreDataBits)
+
   val s_ready :: s_request :: s_refill_wait :: s_refill :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
   val invalidated = Reg(Bool())
@@ -242,7 +245,7 @@ class ICache extends FrontendModule
     val data_array = SeqMem(Bits(width = code.width(rowBits)), nSets*refillCycles)
     val wen = narrow_grant.valid && repl_way === UInt(i)
     when (wen) {
-      val e_d = code.encode(narrow_grant.bits.data).toUInt
+      val e_d = code.encode(tagUtil.removeTag(narrow_grant.bits.data).toUInt)
       if(refillCycles > 1) data_array.write(Cat(s2_idx, refill_cnt), e_d)
       else data_array.write(s2_idx, e_d)
     }
