@@ -383,11 +383,13 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     val secondary_miss = Bool(OUTPUT)
 
     val mem_req  = Decoupled(new Acquire)
+    val io_req  = Decoupled(new Acquire(p.alterPartial({ case TLId => p(IOTLId)})))
     val refill = new L1RefillReq().asOutput
     val meta_read = Decoupled(new L1MetaReadReq)
     val meta_write = Decoupled(new L1MetaWriteReq)
     val replay = Decoupled(new Replay)
     val mem_grant = Valid(new Grant).flip
+    val io_grant = Valid(new Grant(p.alterPartial({ case TLId => p(IOTLId)}))).flip
     val wb_req = Decoupled(new WritebackReq)
 
     val probe_rdy = Bool(OUTPUT)
@@ -414,9 +416,12 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val meta_write_arb = Module(new Arbiter(new L1MetaWriteReq, nMSHRs))
   val mem_req_arb = Module(new LockingArbiter(
                                   new Acquire,
-                                  nMSHRs + nIOMSHRs,
+                                  nMSHRs,
                                   outerDataBeats,
                                   (a: Acquire) => a.hasMultibeatData()))
+  val io_req_arb = Module(new LockingArbiter(
+                                  new Acquire(p.alterPartial({ case TLId => p(IOTLId)})),
+                                  nIOMSHRs))
   val wb_req_arb = Module(new Arbiter(new WritebackReq, nMSHRs))
   val replay_arb = Module(new Arbiter(new ReplayInternal, nMSHRs))
   val alloc_arb = Module(new Arbiter(Bool(), nMSHRs))
@@ -474,8 +479,7 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   var mmio_rdy = Bool(false)
 
   for (i <- 0 until nIOMSHRs) {
-    val id = nMSHRs + i
-    val mshr = Module(new IOMSHR(id))
+    val mshr = Module(new IOMSHR(i)(p.alterPartial({ case TLId => p(IOTLId)})))
 
     mmio_alloc_arb.io.in(i).valid := mshr.io.req.ready
     mshr.io.req.valid := mmio_alloc_arb.io.in(i).ready
@@ -483,11 +487,11 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
     mmio_rdy = mmio_rdy || mshr.io.req.ready
 
-    mem_req_arb.io.in(id) <> mshr.io.acquire
+    io_mem_req_arb.io.in(i) <> mshr.io.acquire
 
-    mshr.io.grant.bits := io.mem_grant.bits
-    mshr.io.grant.valid := io.mem_grant.valid &&
-        io.mem_grant.bits.client_xact_id === UInt(id)
+    mshr.io.grant.bits := io.io_grant.bits
+    mshr.io.grant.valid := io.io_grant.valid &&
+        io.io_grant.bits.client_xact_id === UInt(i)
 
     resp_arb.io.in(i) <> mshr.io.resp
 
@@ -737,6 +741,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     val cpu = (new HellaCacheIO).flip
     val ptw = new TLBPTWIO()
     val mem = new ClientTileLinkIO
+    val io = new ClientUncachedTileLinkIO(p.alterPartial({ case TLId => p(IOTLId)}))
   }
  
   require(lrscCycles >= 32) // ISA requires 16-insn LRSC sequences to succeed
@@ -941,6 +946,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   mshrs.io.req.bits.data := s2_req.data
   when (mshrs.io.req.fire()) { replacer.miss }
   io.mem.acquire <> mshrs.io.mem_req
+  io.io.acquire <> mshrs.io.io_req
 
   // replays
   readArb.io.in(1).valid := mshrs.io.replay.valid
@@ -970,17 +976,14 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   mshrs.io.mem_grant.valid := narrow_grant.fire()
   mshrs.io.mem_grant.bits := narrow_grant.bits
   narrow_grant.ready := writeArb.io.in(1).ready || !narrow_grant.bits.hasData()
-  /* The last clause here is necessary in order to prevent the responses for
-   * the IOMSHRs from being written into the data array. It works because the
-   * IOMSHR ids start right the ones for the regular MSHRs. */
-  writeArb.io.in(1).valid := narrow_grant.valid && narrow_grant.bits.hasData() &&
-                             narrow_grant.bits.client_xact_id < UInt(nMSHRs)
+  writeArb.io.in(1).valid := narrow_grant.valid && narrow_grant.bits.hasData()
   writeArb.io.in(1).bits.addr := mshrs.io.refill.addr
   writeArb.io.in(1).bits.way_en := mshrs.io.refill.way_en
   writeArb.io.in(1).bits.wmask := ~UInt(0, rowWords)
   writeArb.io.in(1).bits.data := narrow_grant.bits.data(encRowBits-1,0)
   data.io.read <> readArb.io.out
   readArb.io.out.ready := !narrow_grant.valid || narrow_grant.ready // insert bubble if refill gets blocked
+  mshrs.io.io_grant <> io.io.grant
 
   // writebacks
   val wbArb = Module(new Arbiter(new WritebackReq, 2))

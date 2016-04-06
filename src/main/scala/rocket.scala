@@ -23,6 +23,7 @@ case object CoreDataBits extends Field[Int]
 case object CoreDCacheReqTagBits extends Field[Int]
 case object NCustomMRWCSRs extends Field[Int]
 case object MtvecInit extends Field[BigInt]
+case object IOTLId extends Field[String]
 
 trait HasCoreParameters extends HasAddrMapParameters {
   implicit val p: Parameters
