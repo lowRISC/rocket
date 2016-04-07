@@ -11,7 +11,7 @@ import uncore.PseudoLRU
 
 case object NTLBEntries extends Field[Int]
 
-trait HasTLBParameters extends HasAddrMapParameters {
+trait HasTLBParameters extends HasCoreParameters {
   val entries = p(NTLBEntries)
   val camAddrBits = log2Ceil(entries)
   val camTagBits = asIdBits + vpnBits
@@ -57,7 +57,7 @@ class RocketCAM(implicit p: Parameters) extends TLBModule()(p) {
 
 class TLBReq(implicit p: Parameters) extends CoreBundle()(p) {
   val asid = UInt(width = asIdBits)
-  val vpn = UInt(width = vpnBits+1)
+  val vpn = UInt(width = vpnBitsExtended)
   val passthrough = Bool()
   val instruction = Bool()
   val store = Bool()
@@ -83,14 +83,14 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
     val ptw = new TLBPTWIO
   }
 
-  val s_ready :: s_request :: s_wait :: s_wait_invalidate :: Nil = Enum(UInt(), 4)
-  val state = Reg(init=s_ready)
-  val r_refill_tag = Reg(UInt())
-  val r_refill_waddr = Reg(UInt())
-  val r_req = Reg(new TLBReq)
-
   val tag_cam = Module(new RocketCAM)
   val tag_ram = Mem(entries, io.ptw.resp.bits.pte.ppn)
+
+  val s_ready :: s_request :: s_wait :: s_wait_invalidate :: Nil = Enum(UInt(), 4)
+  val state = Reg(init=s_ready)
+  val r_refill_tag = Reg(tag_cam.io.write_tag)
+  val r_refill_waddr = Reg(tag_cam.io.write_addr)
+  val r_req = Reg(new TLBReq)
   
   val lookup_tag = Cat(io.req.bits.asid, io.req.bits.vpn).toUInt
   tag_cam.io.tag := lookup_tag
@@ -100,7 +100,6 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
   val tag_hit_addr = OHToUInt(tag_cam.io.hits)
   
   // permission bit arrays
-  val valid_array = Reg(Vec(entries, Bool())) // PTE is valid (not equivalent to CAM tag valid bit!)
   val ur_array = Reg(Vec(entries, Bool())) // user read permission
   val uw_array = Reg(Vec(entries, Bool())) // user write permission
   val ux_array = Reg(Vec(entries, Bool())) // user execute permission
@@ -111,13 +110,12 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
   when (io.ptw.resp.valid) {
     val pte = io.ptw.resp.bits.pte
     tag_ram(r_refill_waddr) := pte.ppn
-    valid_array(r_refill_waddr) := !io.ptw.resp.bits.error
-    ur_array(r_refill_waddr) := pte.ur() && !io.ptw.resp.bits.error
-    uw_array(r_refill_waddr) := pte.uw() && !io.ptw.resp.bits.error
-    ux_array(r_refill_waddr) := pte.ux() && !io.ptw.resp.bits.error
-    sr_array(r_refill_waddr) := pte.sr() && !io.ptw.resp.bits.error
-    sw_array(r_refill_waddr) := pte.sw() && !io.ptw.resp.bits.error
-    sx_array(r_refill_waddr) := pte.sx() && !io.ptw.resp.bits.error
+    ur_array(r_refill_waddr) := pte.ur()
+    uw_array(r_refill_waddr) := pte.uw()
+    ux_array(r_refill_waddr) := pte.ux()
+    sr_array(r_refill_waddr) := pte.sr()
+    sw_array(r_refill_waddr) := pte.sw()
+    sx_array(r_refill_waddr) := pte.sx()
     dirty_array(r_refill_waddr) := pte.d
   }
  
@@ -126,18 +124,23 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
   val invalid_entry = PriorityEncoder(~tag_cam.io.valid_bits)
   val plru = new PseudoLRU(entries)
   val repl_waddr = Mux(has_invalid_entry, invalid_entry, plru.replace)
- 
-  val priv = Mux(io.ptw.status.mprv && !io.req.bits.instruction, io.ptw.status.prv1, io.ptw.status.prv)
-  val priv_s = priv === PRV_S
-  val priv_uses_vm = priv <= PRV_S
+
+  val do_mprv = io.ptw.status.prv === PRV.M && io.ptw.status.mprv && !io.req.bits.instruction
+  val priv = Mux(do_mprv, io.ptw.status.mpp, io.ptw.status.prv)
+  val priv_s = priv === PRV.S
+  val priv_uses_vm = priv <= PRV.S
   val req_xwr = Cat(!r_req.store, r_req.store, !(r_req.instruction || r_req.store))
 
-  val r_array = Mux(priv_s, sr_array.toBits, ur_array.toBits)
-  val w_array = Mux(priv_s, sw_array.toBits, uw_array.toBits)
+  val ur_bits = ur_array.toBits
+  val pum_ok = ~Mux(io.ptw.status.pum, ur_bits, UInt(0))
+  val r_array = Mux(priv_s, sr_array.toBits & pum_ok, ur_bits)
+  val w_array = Mux(priv_s, sw_array.toBits & pum_ok, uw_array.toBits)
   val x_array = Mux(priv_s, sx_array.toBits, ux_array.toBits)
 
-  val vm_enabled = io.ptw.status.vm(3) && priv_uses_vm && !io.req.bits.passthrough
-  val bad_va = io.req.bits.vpn(vpnBits) =/= io.req.bits.vpn(vpnBits-1)
+  val vm_enabled = Bool(usingVM) && io.ptw.status.vm(3) && priv_uses_vm && !io.req.bits.passthrough
+  val bad_va =
+    if (vpnBits == vpnBitsExtended) Bool(false)
+    else io.req.bits.vpn(vpnBits) =/= io.req.bits.vpn(vpnBits-1)
   // it's only a store hit if the dirty bit is set
   val tag_hits = tag_cam.io.hits & (dirty_array.toBits | ~Mux(io.req.bits.store, w_array, UInt(0)))
   val tag_hit = tag_hits.orR
@@ -160,10 +163,10 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
   io.resp.ppn := Mux(vm_enabled, Mux1H(tag_cam.io.hits, tag_ram), io.req.bits.vpn(ppnBits-1,0))
   io.resp.hit_idx := tag_cam.io.hits
 
-  // clear invalid entries on access, or all entries on a TLB flush
-  tag_cam.io.clear := io.ptw.invalidate || io.req.fire()
-  tag_cam.io.clear_mask := ~valid_array.toBits | (tag_cam.io.hits & ~tag_hits)
-  when (io.ptw.invalidate) { tag_cam.io.clear_mask := ~UInt(0, entries) }
+  // clear entries on a TLB flush.
+  // TODO: selective flushing.  careful with superpage mappings (flush it all)
+  tag_cam.io.clear := io.ptw.invalidate
+  tag_cam.io.clear_mask := ~UInt(0, entries)
   
   io.ptw.req.valid := state === s_request
   io.ptw.req.bits.addr := r_refill_tag
@@ -171,26 +174,28 @@ class TLB(implicit p: Parameters) extends TLBModule()(p) {
   io.ptw.req.bits.store := r_req.store
   io.ptw.req.bits.fetch := r_req.instruction
 
-  when (io.req.fire() && tlb_miss) {
-    state := s_request
-    r_refill_tag := lookup_tag
-    r_refill_waddr := repl_waddr
-    r_req := io.req.bits
-  }
-  when (state === s_request) {
-    when (io.ptw.invalidate) {
+  if (usingVM) {
+    when (io.req.fire() && tlb_miss) {
+      state := s_request
+      r_refill_tag := lookup_tag
+      r_refill_waddr := repl_waddr
+      r_req := io.req.bits
+    }
+    when (state === s_request) {
+      when (io.ptw.invalidate) {
+        state := s_ready
+      }
+      when (io.ptw.req.ready) {
+        state := s_wait
+        when (io.ptw.invalidate) { state := s_wait_invalidate }
+      }
+    }
+    when (state === s_wait && io.ptw.invalidate) {
+      state := s_wait_invalidate
+    }
+    when (io.ptw.resp.valid) {
       state := s_ready
     }
-    when (io.ptw.req.ready) {
-      state := s_wait
-      when (io.ptw.invalidate) { state := s_wait_invalidate }
-    }
-  }
-  when (state === s_wait && io.ptw.invalidate) {
-    state := s_wait_invalidate
-  }
-  when (io.ptw.resp.valid) {
-    state := s_ready
   }
 }
 

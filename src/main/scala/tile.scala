@@ -26,15 +26,13 @@ abstract class Tile(resetSignal: Bool = null)
   val usingRocc = !buildRocc.isEmpty
   val nRocc = buildRocc.size
   val nFPUPorts = buildRocc.filter(_.useFPU).size
-  val nDCachePorts = 2 + nRocc
-  val nPTWPorts = 2 + p(RoccNPTWPorts)
   val nCachedTileLinkPorts = 1
   val nUncachedTileLinkPorts = 1 + p(RoccNMemChannels)
   val dcacheParams = p.alterPartial({ case CacheName => "L1D" })
   val io = new Bundle {
     val cached = Vec(nCachedTileLinkPorts, new ClientTileLinkIO)
     val uncached = Vec(nUncachedTileLinkPorts, new ClientUncachedTileLinkIO)
-    val io = new ClientUncachedTileLinkIO()(p.alterPartial({ case TLId => p(IOTLId) }))
+    val io = new ClientTileLinkIO()(p.alterPartial({ case TLId => p(IOTLId) }))
     val dma = new DmaIO
 
     val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
@@ -48,33 +46,21 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
     case CacheName => "L1I"
     case CoreName => "Rocket" })))
   val dcache = Module(new HellaCache()(dcacheParams))
-  val ptw = Module(new PTW(nPTWPorts)(dcacheParams))
 
+  val ptwPorts = collection.mutable.ArrayBuffer(icache.io.ptw, dcache.io.ptw)
+  val dcPorts = collection.mutable.ArrayBuffer(core.io.dmem)
+  val uncachedArbPorts = collection.mutable.ArrayBuffer(icache.io.mem)
+  val uncachedPorts = collection.mutable.ArrayBuffer[ClientUncachedTileLinkIO]()
+  val cachedPorts = collection.mutable.ArrayBuffer(dcache.io.mem)
   dcache.io.cpu.invalidate_lr := core.io.dmem.invalidate_lr // Bypass signal to dcache
-  val dcArb = Module(new HellaCacheArbiter(nDCachePorts)(dcacheParams))
-  dcArb.io.requestor(0) <> ptw.io.mem
-  dcArb.io.requestor(1) <> core.io.dmem
-  dcache.io.cpu <> dcArb.io.mem
-
-  ptw.io.requestor(0) <> icache.io.ptw
-  ptw.io.requestor(1) <> dcache.io.ptw
-
   icache.io.cpu <> core.io.imem
-  core.io.ptw <> ptw.io.dpath
   core.io.mmcsr <> io.mmcsr
   core.io.irq <> io.irq
 
   val fpuOpt = if (p(UseFPU)) Some(Module(new FPU)) else None
   fpuOpt.foreach(fpu => core.io.fpu <> fpu.io)
 
-  // Connect the caches and ROCC to the outer memory system
-  io.cached.head <> dcache.io.mem
-  // If so specified, build an RoCC module and wire it to core + TileLink ports,
-  // otherwise just hookup the icache
-  io.uncached <> (if (usingRocc) {
-    val uncachedArb = Module(new ClientTileLinkIOArbiter(1 + nRocc))
-    uncachedArb.io.in(0) <> icache.io.mem
-
+  if (usingRocc) {
     val respArb = Module(new RRArbiter(new RoCCResponse, nRocc))
     core.io.rocc.resp <> respArb.io.out
 
@@ -90,12 +76,12 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
       }))
       val dcIF = Module(new SimpleHellaCacheIF()(dcacheParams))
       rocc.io.cmd <> cmdRouter.io.out(i)
-      rocc.io.s := core.io.rocc.s
+      rocc.io.status := core.io.rocc.status
       rocc.io.exception := core.io.rocc.exception
       rocc.io.host_id := id
       dcIF.io.requestor <> rocc.io.mem
-      dcArb.io.requestor(2 + i) <> dcIF.io.cache
-      uncachedArb.io.in(1 + i) <> rocc.io.autl
+      dcPorts += dcIF.io.cache
+      uncachedArbPorts += rocc.io.autl
       rocc
     }
 
@@ -114,8 +100,6 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
       }
     }
 
-    ptw.io.requestor.drop(2) <> roccs.flatMap(_.io.ptw)
-
     core.io.rocc.busy := cmdRouter.io.busy || roccs.map(_.io.busy).reduce(_ || _)
     core.io.rocc.interrupt := roccs.map(_.io.interrupt).reduce(_ || _)
     respArb.io.in <> roccs.map(rocc => Queue(rocc.io.resp))
@@ -132,8 +116,31 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
       }
     }
 
-    roccs.flatMap(_.io.utl) :+ uncachedArb.io.out
-  } else { Seq(icache.io.mem) })
+    ptwPorts ++= roccs.flatMap(_.io.ptw)
+    uncachedPorts ++= roccs.flatMap(_.io.utl)
+  }
+
+  val uncachedArb = Module(new ClientUncachedTileLinkIOArbiter(uncachedArbPorts.size))
+  uncachedArb.io.in <> uncachedArbPorts
+  uncachedArb.io.out +=: uncachedPorts
+
+  // Connect the caches and RoCC to the outer memory system
+  io.uncached <> uncachedPorts
+  io.cached <> cachedPorts
+  // TODO remove nCached/nUncachedTileLinkPorts parameters and these assertions
+  require(uncachedPorts.size == nUncachedTileLinkPorts)
+  require(cachedPorts.size == nCachedTileLinkPorts)
+
+  if (p(UseVM)) {
+    val ptw = Module(new PTW(ptwPorts.size)(dcacheParams))
+    ptw.io.requestor <> ptwPorts
+    ptw.io.mem +=: dcPorts
+    core.io.ptw <> ptw.io.dpath
+  }
+
+  val dcArb = Module(new HellaCacheArbiter(dcPorts.size)(dcacheParams))
+  dcArb.io.requestor <> dcPorts
+  dcache.io.cpu <> dcArb.io.mem
 
   if (!usingRocc || nFPUPorts == 0) {
     fpuOpt.foreach { fpu =>
