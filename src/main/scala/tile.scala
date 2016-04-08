@@ -15,6 +15,7 @@ abstract class Tile extends Module {
     val pcr = new PCRIO
     val irq = Bool(INPUT)
     val soft_reset = Bool(INPUT)
+    val dbgrst = Bool(INPUT)
     val dbgnet = Vec(2, new DiiIO)       // debug network
   }
 }
@@ -73,4 +74,5 @@ class RocketTile(id: Int = 0) extends Tile {
 
   // debug
   io.dbgnet <> core.io.dbgnet
+  io.dbgrst <> core.io.dbgrst
 }

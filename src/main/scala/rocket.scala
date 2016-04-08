@@ -57,6 +57,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     val pcr = new PCRIO
     val irq = Bool(INPUT)
     val dbgnet = Vec(2, new DiiIO)       // debug network
+    val dbgrst = Bool(INPUT)             // reset debug network
   }
 
   var decode_table = XDecode.table
@@ -536,7 +537,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     val ctm = Module(new RocketCoreTracer(
       id, isRead, isWrite,
       isCsrRead, isCsrWrite, isCsrTrap,
-      true))
+      true)(io.dbgrst))
     ctm.io.wb_valid := wb_valid
     ctm.io.wb_pc := wb_reg_pc
     ctm.io.wb_wdata := rf_wdata
@@ -564,7 +565,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     ctm.io.dmem_addr := io.dmem.resp.bits.addr
 
     // software tracer module
-    val stm = Module(new RocketSoftwareTracer(id, true))
+    val stm = Module(new RocketSoftwareTracer(id, true)(io.dbgrst))
     stm.io.retire := wb_valid
     stm.io.reg_wdata := rf_wdata
     stm.io.reg_waddr := rf_waddr
@@ -574,7 +575,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
     stm.io.csr_wen := csr.io.debug_csr_wen
 
     // the part of ring network inside a Rocket core
-    val network = Module(new RocketDebugNetwork(id))
+    val network = Module(new RocketDebugNetwork(id)(io.dbgrst))
     network.io.net <> io.dbgnet
     network.io.ctm <> ctm.io.net
     network.io.stm <> stm.io.net
