@@ -33,7 +33,6 @@ abstract class Tile(resetSignal: Bool = null)
     val cached = Vec(nCachedTileLinkPorts, new ClientTileLinkIO)
     val uncached = Vec(nUncachedTileLinkPorts, new ClientUncachedTileLinkIO)
     val io = new ClientTileLinkIO()(p.alterPartial({ case TLId => p(IOTLId) }))
-    val dma = new DmaIO
 
     val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
     val irq = Bool(INPUT)

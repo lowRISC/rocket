@@ -409,13 +409,13 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     val secondary_miss = Bool(OUTPUT)
 
     val mem_req  = Decoupled(new Acquire)
-    val io_req  = Decoupled(new Acquire(p.alterPartial({ case TLId => p(IOTLId)})))
+    val io_req  = Decoupled(new Acquire()(p.alterPartial({ case TLId => p(IOTLId)})))
     val refill = new L1RefillReq().asOutput
     val meta_read = Decoupled(new L1MetaReadReq)
     val meta_write = Decoupled(new L1MetaWriteReq)
     val replay = Decoupled(new Replay)
     val mem_grant = Valid(new GrantFromSrc).flip
-    val io_grant = Valid(new GrantFromSrc(p.alterPartial({ case TLId => p(IOTLId)}))).flip
+    val io_grant = Valid(new GrantFromSrc()(p.alterPartial({ case TLId => p(IOTLId)}))).flip
     val mem_finish = Decoupled(new FinishToDst)
     val io_finish = Decoupled(new FinishToDst)
     val wb_req = Decoupled(new WritebackReq)
@@ -447,11 +447,11 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
                                   nMSHRs,
                                   outerDataBeats,
                                   (a: Acquire) => a.hasMultibeatData()))
-  val io_req_arb = Module(new LockingArbiter(
-                                  new Acquire(p.alterPartial({ case TLId => p(IOTLId)})),
+  val io_req_arb = Module(new Arbiter(
+                                  new Acquire()(p.alterPartial({ case TLId => p(IOTLId)})),
                                   nIOMSHRs))
   val mem_finish_arb = Module(new Arbiter(new FinishToDst, nMSHRs))
-  val io_finish_arb = Module(new Arbiter(new FinishToDst({ case TLId => p(IOTLId)})), nIOMSHRs))
+  val io_finish_arb = Module(new Arbiter(new FinishToDst()(p.alterPartial({ case TLId => p(IOTLId)})), nIOMSHRs))
   val wb_req_arb = Module(new Arbiter(new WritebackReq, nMSHRs))
   val replay_arb = Module(new Arbiter(new ReplayInternal, nMSHRs))
   val alloc_arb = Module(new Arbiter(Bool(), nMSHRs))
@@ -774,7 +774,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     val cpu = (new HellaCacheIO).flip
     val ptw = new TLBPTWIO()
     val mem = new ClientTileLinkIO
-    val io = new ClientTileLinkIO(p.alterPartial({ case TLId => p(IOTLId)}))
+    val io = new ClientTileLinkIO()(p.alterPartial({ case TLId => p(IOTLId)}))
   }
  
   require(isPow2(nWays)) // TODO: relax this
