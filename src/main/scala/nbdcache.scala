@@ -36,7 +36,7 @@ trait HasL1HellaCacheParameters extends HasL1CacheParameters {
 
   require(lrscCycles >= 32) // ISA requires 16-insn LRSC sequences to succeed
   require(isPow2(nSets))
-  require(rowBits <= outerDataBits)
+  require(outerDataBeats == 1 || rowBits <= outerDataBits) // rowBits less than a beat for memory
   require(untagBits <= pgIdxBits)
 }
 
