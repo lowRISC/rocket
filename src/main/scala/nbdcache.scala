@@ -539,6 +539,9 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   io.secondary_miss := idx_match
   io.refill := refillMux(io.mem_grant.bits.client_xact_id)
 
+  io.io_req <> io_req_arb.io.out
+  io.io_finish <> io_finish_arb.io.out
+
   val free_sdq = io.replay.fire() && isWrite(io.replay.bits.cmd)
   io.replay.bits.data := sdq(RegEnable(replay_arb.io.out.bits.sdq_id, free_sdq))
   io.replay <> replay_arb.io.out
