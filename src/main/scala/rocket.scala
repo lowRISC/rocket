@@ -596,7 +596,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
          wb_reg_inst, wb_reg_inst)
   }
 
-  if(params(UseDebug)) {
+  if(p(UseDebug)) {
 
     // core tracer module
     def isCsrRead(cmd:UInt, addr:UInt):Bool = cmd =/= CSR.N && cmd =/= CSR.I
@@ -631,7 +631,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     ctm.io.csr_time := csr.io.time
     ctm.io.dmem_has_data := dmem_resp_valid
     ctm.io.dmem_replay := io.dmem.resp.bits.replay
-    ctm.io.dmem_rdata := io.dmem.resp.bits.data_subword
+    ctm.io.dmem_rdata := io.dmem.resp.bits.data
     ctm.io.dmem_wdata := io.dmem.resp.bits.store_data
     ctm.io.dmem_addr := io.dmem.resp.bits.addr
 
