@@ -4,6 +4,7 @@ package rocket
 
 import Chisel._
 import uncore._
+import open_soc_debug._
 import Util._
 import junctions._
 import cde.{Parameters, Field}
@@ -36,6 +37,8 @@ abstract class Tile(resetSignal: Bool = null)
 
     val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
     val irq = Bool(INPUT)
+    val dbgrst = Bool(INPUT)
+    val dbgnet = Vec(2, new DiiIO)       // debug network
   }
 }
 
@@ -150,4 +153,8 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
 
   // Connect the MMIO to outer IO network
   io.io <> dcache.io.io
+
+  // debug
+  io.dbgnet <> core.io.dbgnet
+  io.dbgrst <> core.io.dbgrst
 }
