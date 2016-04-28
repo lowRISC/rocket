@@ -186,9 +186,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val system_insn = io.rw.cmd === CSR.I
   val cpu_ren = io.rw.cmd =/= CSR.N && !system_insn
 
-  val mmcsr_req_valid = Reg(Bool()) // don't reset
+  val mmcsr_req_valid = Reg(init=Bool(false))
   val mmcsr_req_fire = mmcsr_req_valid && !cpu_ren
-  val mmcsr_rep_valid = Reg(Bool()) // don't reset
+  val mmcsr_rep_valid = Reg(init=Bool(false))
   val mmcsr_bits = Reg(io.mmcsr.req.bits)
   io.mmcsr.req.ready := !mmcsr_req_valid && !mmcsr_rep_valid
   io.mmcsr.resp.valid := mmcsr_rep_valid
