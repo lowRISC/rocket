@@ -25,7 +25,7 @@ trait HasL1HellaCacheParameters extends HasL1CacheParameters {
   val idxLSB = blockOffBits
   val offsetmsb = idxLSB-1
   val offsetlsb = wordOffBits
-  val rowWords = rowBits/wordBits 
+  val rowWords = rowBits/wordBits
   val doNarrowRead = coreDataBits * nWays % rowBits == 0
   val encDataBits = code.width(coreDataBits)
   val encRowBits = encDataBits*rowWords
@@ -37,7 +37,7 @@ trait HasL1HellaCacheParameters extends HasL1CacheParameters {
   require(lrscCycles >= 32) // ISA requires 16-insn LRSC sequences to succeed
   require(isPow2(nSets))
   require(outerDataBeats == 1 || rowBits <= outerDataBits) // rowBits less than a beat for memory
-  require(untagBits <= pgIdxBits)
+  require(!usingVM || untagBits <= pgIdxBits)
 }
 
 abstract class L1HellaCacheModule(implicit val p: Parameters) extends Module
@@ -170,9 +170,15 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val grant_word = Reg(UInt(width = wordBits))
   val fq = Module(new FinishQueue(1))
 
+  val s_idle :: s_acquire :: s_grant :: s_resp :: s_finish :: Nil = Enum(Bits(), 5)
+  val state = Reg(init = s_idle)
+  io.req.ready := (state === s_idle)
+
   fq.io.enq.valid := io.grant.valid && io.grant.bits.requiresAck()
   fq.io.enq.bits := io.grant.bits.makeFinish()
-  io.finish <> fq.io.deq
+  io.finish.valid := fq.io.deq.valid && (state === s_finish)
+  io.finish.bits := fq.io.deq.bits
+  fq.io.deq.ready := io.finish.ready && (state === s_finish)
 
   val storegen = new StoreGen(req.typ, req.addr, req.data, wordBytes)
   val loadgen = new LoadGen(req.typ, req.addr, grant_word, req_cmd_sc, wordBytes)
@@ -180,11 +186,6 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val beat_offset = req.addr(beatOffBits - 1, wordOffBits)
   val beat_mask = (storegen.mask << Cat(beat_offset, UInt(0, wordOffBits)))
   val beat_data = Fill(beatWords, storegen.data)
-
-  val s_idle :: s_acquire :: s_grant :: s_resp :: s_finish :: Nil = Enum(Bits(), 5)
-  val state = Reg(init = s_idle)
-
-  io.req.ready := (state === s_idle)
 
   val addr_block = req.addr(paddrBits - 1, blockOffBits)
   val addr_beat  = req.addr(blockOffBits - 1, beatOffBits)
@@ -226,11 +227,9 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   }
 
   when (state === s_grant && io.grant.valid) {
+    state := s_resp
     when (isRead(req.cmd)) {
       grant_word := wordFromBeat(req.addr, io.grant.bits.data)
-      state := s_resp
-    } .otherwise {
-      state := s_idle
     }
   }
 
@@ -424,8 +423,8 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     val fence_rdy = Bool(OUTPUT)
   }
 
-  // determine if the request is in the memory region or mmio region
-  val cacheable = io.req.bits.addr < UInt(mmioBase)
+  // determine if the request is cacheable or not
+  val cacheable = addrMap.isCacheable(io.req.bits.addr)
 
   val sdq_val = Reg(init=Bits(0, sdqDepth))
   val sdq_alloc_id = PriorityEncoder(~sdq_val(sdqDepth-1,0))
@@ -810,7 +809,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
   val dtlb = Module(new TLB)
   io.ptw <> dtlb.io.ptw
-  dtlb.io.req.valid := s1_valid_masked && s1_readwrite && !s1_req.phys
+  dtlb.io.req.valid := s1_valid_masked && s1_readwrite
   dtlb.io.req.bits.passthrough := s1_req.phys
   dtlb.io.req.bits.asid := UInt(0)
   dtlb.io.req.bits.vpn := s1_req.addr >> pgIdxBits
@@ -876,7 +875,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   writeArb.io.out.ready := data.io.write.ready
   data.io.write.bits := writeArb.io.out.bits
   val wdata_encoded = (0 until rowWords).map(i => code.encode(writeArb.io.out.bits.data(coreDataBits*(i+1)-1,coreDataBits*i)))
-  data.io.write.bits.data := Vec(wdata_encoded).toBits
+  data.io.write.bits.data := Cat(wdata_encoded.reverse)
 
   // tag read for new requests
   metaReadArb.io.in(4).valid := io.cpu.req.valid

@@ -92,9 +92,12 @@ object Instructions {
   def AMOSWAP_D          = BitPat("b00001????????????011?????0101111")
   def LR_D               = BitPat("b00010??00000?????011?????0101111")
   def SC_D               = BitPat("b00011????????????011?????0101111")
-  def SCALL              = BitPat("b00000000000000000000000001110011")
-  def SBREAK             = BitPat("b00000000000100000000000001110011")
+  def ECALL              = BitPat("b00000000000000000000000001110011")
+  def EBREAK             = BitPat("b00000000000100000000000001110011")
+  def URET               = BitPat("b00000000001000000000000001110011")
   def SRET               = BitPat("b00010000001000000000000001110011")
+  def HRET               = BitPat("b00100000001000000000000001110011")
+  def MRET               = BitPat("b00110000001000000000000001110011")
   def SFENCE_VM          = BitPat("b000100000100?????000000001110011")
   def WFI                = BitPat("b00010000010100000000000001110011")
   def CSRRW              = BitPat("b?????????????????001?????1110011")
@@ -206,9 +209,8 @@ object Instructions {
   def RDCYCLEH           = BitPat("b11001000000000000010?????1110011")
   def RDTIMEH            = BitPat("b11001000000100000010?????1110011")
   def RDINSTRETH         = BitPat("b11001000001000000010?????1110011")
-  def ECALL              = BitPat("b00000000000000000000000001110011")
-  def EBREAK             = BitPat("b00000000000100000000000001110011")
-  def ERET               = BitPat("b00010000000000000000000001110011")
+  def SCALL              = BitPat("b00000000000000000000000001110011")
+  def SBREAK             = BitPat("b00000000000100000000000001110011")
 }
 object Causes {
   val misaligned_fetch = 0x0
@@ -247,23 +249,6 @@ object CSRs {
   val cycle = 0xc00
   val time = 0xc01
   val instret = 0xc02
-  val stats = 0xc0
-  val uarch0 = 0xcc0
-  val uarch1 = 0xcc1
-  val uarch2 = 0xcc2
-  val uarch3 = 0xcc3
-  val uarch4 = 0xcc4
-  val uarch5 = 0xcc5
-  val uarch6 = 0xcc6
-  val uarch7 = 0xcc7
-  val uarch8 = 0xcc8
-  val uarch9 = 0xcc9
-  val uarch10 = 0xcca
-  val uarch11 = 0xccb
-  val uarch12 = 0xccc
-  val uarch13 = 0xccd
-  val uarch14 = 0xcce
-  val uarch15 = 0xccf
   val sstatus = 0x100
   val sie = 0x104
   val stvec = 0x105
@@ -282,7 +267,6 @@ object CSRs {
   val mideleg = 0x303
   val mie = 0x304
   val mtvec = 0x305
-  val mtimecmp = 0x321
   val mscratch = 0x340
   val mepc = 0x341
   val mcause = 0x342
@@ -304,13 +288,11 @@ object CSRs {
   val mvendorid = 0xf11
   val marchid = 0xf12
   val mimpid = 0xf13
-  val mcfgaddr = 0xf14
-  val mhartid = 0xf15
+  val mhartid = 0xf14
   val mreset = 0x7c2
   val cycleh = 0xc80
   val timeh = 0xc81
   val instreth = 0xc82
-  val mtimecmph = 0x361
   val mucycle_deltah = 0x780
   val mutime_deltah = 0x781
   val muinstret_deltah = 0x782
@@ -318,7 +300,6 @@ object CSRs {
   val mstime_deltah = 0x785
   val msinstret_deltah = 0x786
   val mcycleh = 0xf80
-  val mtimeh = 0xf81
   val minstreth = 0xf82
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
@@ -328,23 +309,6 @@ object CSRs {
     res += cycle
     res += time
     res += instret
-    res += stats
-    res += uarch0
-    res += uarch1
-    res += uarch2
-    res += uarch3
-    res += uarch4
-    res += uarch5
-    res += uarch6
-    res += uarch7
-    res += uarch8
-    res += uarch9
-    res += uarch10
-    res += uarch11
-    res += uarch12
-    res += uarch13
-    res += uarch14
-    res += uarch15
     res += sstatus
     res += sie
     res += stvec
@@ -363,7 +327,6 @@ object CSRs {
     res += mideleg
     res += mie
     res += mtvec
-    res += mtimecmp
     res += mscratch
     res += mepc
     res += mcause
@@ -385,7 +348,6 @@ object CSRs {
     res += mvendorid
     res += marchid
     res += mimpid
-    res += mcfgaddr
     res += mhartid
     res += mreset
     res.toArray
@@ -395,7 +357,6 @@ object CSRs {
     res += cycleh
     res += timeh
     res += instreth
-    res += mtimecmph
     res += mucycle_deltah
     res += mutime_deltah
     res += muinstret_deltah
@@ -403,7 +364,6 @@ object CSRs {
     res += mstime_deltah
     res += msinstret_deltah
     res += mcycleh
-    res += mtimeh
     res += minstreth
     res.toArray
   }

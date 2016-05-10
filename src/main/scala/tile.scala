@@ -35,10 +35,11 @@ abstract class Tile(resetSignal: Bool = null)
     val uncached = Vec(nUncachedTileLinkPorts, new ClientUncachedTileLinkIO)
     val io = new ClientTileLinkIO()(p.alterPartial({ case TLId => p(IOTLId) }))
 
-    val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
     val irq = Bool(INPUT)
     val dbgrst = Bool(INPUT)
     val dbgnet = Vec(2, new DiiIO)       // debug network
+    val prci = new PRCITileIO().flip
+    val dma = new DmaIO
   }
 }
 
@@ -55,8 +56,8 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
   val uncachedPorts = collection.mutable.ArrayBuffer[ClientUncachedTileLinkIO]()
   val cachedPorts = collection.mutable.ArrayBuffer(dcache.io.mem)
   dcache.io.cpu.invalidate_lr := core.io.dmem.invalidate_lr // Bypass signal to dcache
+  core.io.prci <> io.prci
   icache.io.cpu <> core.io.imem
-  core.io.mmcsr <> io.mmcsr
   core.io.irq <> io.irq
 
   val fpuOpt = if (p(UseFPU)) Some(Module(new FPU)) else None

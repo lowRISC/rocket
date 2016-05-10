@@ -51,7 +51,6 @@ trait HasCoreParameters extends HasAddrMapParameters {
   val vpnBitsExtended = vpnBits + (vaddrBits < xLen).toInt
   val vaddrBitsExtended = vpnBitsExtended + pgIdxBits
   val coreMaxAddrBits = paddrBits max vaddrBitsExtended
-  val mmioBase = p(MMIOBase)
   val nCustomMrwCsrs = p(NCustomMRWCSRs)
   val roccCsrs = if (p(BuildRoCC).isEmpty) Nil
     else p(BuildRoCC).flatMap(_.csrs)
@@ -114,13 +113,13 @@ object ImmGen {
 
 class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val io = new Bundle {
+    val prci = new PRCITileIO().flip
     val imem  = new FrontendIO()(p.alterPartial({case CacheName => "L1I" }))
     val dmem = new HellaCacheIO()(p.alterPartial({ case CacheName => "L1D" }))
     val ptw = new DatapathPTWIO().flip
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
 
-    val mmcsr = new SmiIO(xLen, CSR.ADDRSZ).flip
     val irq = Bool(INPUT)
     val dbgnet = Vec(2, new DiiIO)       // debug network
     val dbgrst = Bool(INPUT)             // reset debug network
@@ -434,8 +433,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   csr.io.exception := wb_reg_xcpt
   csr.io.cause := wb_reg_cause
   csr.io.retire := wb_valid
-  csr.io.mmcsr <> io.mmcsr
   csr.io.irq <> io.irq
+  csr.io.prci <> io.prci
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc
@@ -505,7 +504,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     Mux(wb_xcpt || csr.io.eret, csr.io.evec,     // exception or [m|s]ret
     Mux(replay_wb,              wb_reg_pc,       // replay
                                 mem_npc)).toUInt // mispredicted branch
-  io.imem.invalidate := wb_reg_valid && wb_ctrl.fence_i
+  io.imem.flush_icache := wb_reg_valid && wb_ctrl.fence_i
+  io.imem.flush_tlb := csr.io.fatc
   io.imem.resp.ready := !ctrl_stalld || csr.io.interrupt
 
   io.imem.btb_update.valid := mem_reg_valid && !mem_npc_misaligned && mem_wrong_npc && mem_cfi_taken && !take_pc_wb
