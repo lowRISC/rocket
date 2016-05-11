@@ -190,7 +190,9 @@ class CSRFile(id:Int) extends CoreModule
     //CSRs.send_ipi -> io.host.id, /* don't care */
     CSRs.stats -> reg_stats,
     CSRs.mtohost -> UInt(0), //reg_tohost,
-    CSRs.mfromhost -> reg_fromhost)
+    CSRs.mfromhost -> reg_fromhost,
+    CSRs.swtrace -> UInt(0)
+  )
 
   val pcr_mapping = collection.mutable.LinkedHashMap[Int,Int](
     CSRs.time -> PCRs.ptime,
