@@ -5,7 +5,6 @@ package rocket
 import Chisel._
 import junctions._
 import uncore._
-import uncore.constants._
 import open_soc_debug._
 import Util._
 import cde.{Parameters, Field}

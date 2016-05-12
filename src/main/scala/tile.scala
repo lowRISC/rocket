@@ -6,7 +6,6 @@ import Chisel._
 import uncore._
 import open_soc_debug._
 import Util._
-import junctions._
 import cde.{Parameters, Field}
 
 case object CoreName extends Field[String]
@@ -22,7 +21,6 @@ case class RoccParameters(
 
 abstract class Tile(resetSignal: Bool = null)
                    (implicit p: Parameters) extends Module(_reset = resetSignal) {
-  val xLen = p(XLen)
   val buildRocc = p(BuildRoCC)
   val usingRocc = !buildRocc.isEmpty
   val nRocc = buildRocc.size
@@ -55,7 +53,6 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
   val uncachedArbPorts = collection.mutable.ArrayBuffer(icache.io.mem)
   val uncachedPorts = collection.mutable.ArrayBuffer[ClientUncachedTileLinkIO]()
   val cachedPorts = collection.mutable.ArrayBuffer(dcache.io.mem)
-  dcache.io.cpu.invalidate_lr := core.io.dmem.invalidate_lr // Bypass signal to dcache
   core.io.prci <> io.prci
   icache.io.cpu <> core.io.imem
   core.io.irq <> io.irq
@@ -81,7 +78,7 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
       rocc.io.cmd <> cmdRouter.io.out(i)
       rocc.io.status := core.io.rocc.status
       rocc.io.exception := core.io.rocc.exception
-      rocc.io.host_id := id
+      rocc.io.host_id := UInt(id)
       dcIF.io.requestor <> rocc.io.mem
       dcPorts += dcIF.io.cache
       uncachedArbPorts += rocc.io.autl
