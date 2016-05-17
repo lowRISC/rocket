@@ -31,7 +31,6 @@ abstract class Tile(resetSignal: Bool = null)
   val io = new Bundle {
     val cached = Vec(nCachedTileLinkPorts, new ClientTileLinkIO)
     val uncached = Vec(nUncachedTileLinkPorts, new ClientUncachedTileLinkIO)
-    val io = new ClientTileLinkIO()(p.alterPartial({ case TLId => p(IOTLId) }))
 
     val irq = Bool(INPUT)
     val dbgrst = Bool(INPUT)
@@ -148,9 +147,6 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
       fpu.io.cp_resp.ready := Bool(false)
     }
   }
-
-  // Connect the MMIO to outer IO network
-  io.io <> dcache.io.io
 
   // debug
   io.dbgnet <> core.io.dbgnet

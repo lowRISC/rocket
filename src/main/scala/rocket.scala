@@ -25,7 +25,6 @@ case object CoreDCacheReqTagBits extends Field[Int]
 case object NCustomMRWCSRs extends Field[Int]
 case object MtvecWritable extends Field[Boolean]
 case object MtvecInit extends Field[BigInt]
-case object IOTLId extends Field[String]
 case object ResetVector extends Field[BigInt]
 
 trait HasCoreParameters extends HasAddrMapParameters {
