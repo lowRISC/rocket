@@ -34,8 +34,7 @@ abstract trait CoreParameters extends UsesParameters {
   // Requires post-processing due to out-of-order writebacks.
   val EnableCommitLog = false
 
-  // Disable all logs
-  val DisableLogs = true
+  val emitLog = params(EmitLogMessages)
 
   if(params(FastLoadByte)) require(params(FastLoadWord))
 }
@@ -490,7 +489,7 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   io.rocc.cmd.bits.rs1 := wb_reg_wdata
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
-  if (!DisableLogs) {
+  if (emitLog) {
     if (EnableCommitLog) {
       val pc = Wire(SInt(width=64))
       pc := wb_reg_pc

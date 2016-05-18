@@ -30,3 +30,4 @@ case object NTLBEntries extends Field[Int]
 case object NBTBEntries extends Field[Int]
 case object NRAS extends Field[Int]
 
+case object EmitLogMessages extends Field[Boolean]
