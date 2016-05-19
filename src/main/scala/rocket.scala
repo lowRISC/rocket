@@ -26,6 +26,7 @@ case object NCustomMRWCSRs extends Field[Int]
 case object MtvecWritable extends Field[Boolean]
 case object MtvecInit extends Field[BigInt]
 case object ResetVector extends Field[BigInt]
+case object EmitLogMessages extends Field[Boolean]
 
 trait HasCoreParameters extends HasAddrMapParameters {
   implicit val p: Parameters
@@ -61,6 +62,7 @@ trait HasCoreParameters extends HasAddrMapParameters {
   val usingPerfCounters = p(UsePerfCounters)
 
   if (fastLoadByte) require(fastLoadWord)
+  val emitLog = params(EmitLogMessages)
 }
 
 abstract class CoreModule(implicit val p: Parameters) extends Module
@@ -556,42 +558,44 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   io.rocc.cmd.bits.rs1 := wb_reg_wdata
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
-  if (enableCommitLog) {
-    val pc = Wire(SInt(width=xLen))
-    pc := wb_reg_pc
-    val inst = wb_reg_inst
-    val rd = RegNext(RegNext(RegNext(id_waddr)))
-    val wfd = wb_ctrl.wfd
-    val wxd = wb_ctrl.wxd
-    val has_data = wb_wen && !wb_set_sboard
-    val priv = csr.io.status.prv
+  if (emitLog) {
+    if (enableCommitLog) {
+      val pc = Wire(SInt(width=xLen))
+      pc := wb_reg_pc
+      val inst = wb_reg_inst
+      val rd = RegNext(RegNext(RegNext(id_waddr)))
+      val wfd = wb_ctrl.wfd
+      val wxd = wb_ctrl.wxd
+      val has_data = wb_wen && !wb_set_sboard
+      val priv = csr.io.status.prv
 
-    when (wb_valid) {
-      when (wfd) {
-        printf ("%d 0x%x (0x%x) f%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd+UInt(32))
+      when (wb_valid) {
+        when (wfd) {
+          printf ("%d 0x%x (0x%x) f%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd+UInt(32))
+        }
+          .elsewhen (wxd && rd =/= UInt(0) && has_data) {
+          printf ("%d 0x%x (0x%x) x%d 0x%x\n", priv, pc, inst, rd, rf_wdata)
+        }
+          .elsewhen (wxd && rd =/= UInt(0) && !has_data) {
+          printf ("%d 0x%x (0x%x) x%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd)
       }
-      .elsewhen (wxd && rd =/= UInt(0) && has_data) {
-        printf ("%d 0x%x (0x%x) x%d 0x%x\n", priv, pc, inst, rd, rf_wdata)
-      }
-      .elsewhen (wxd && rd =/= UInt(0) && !has_data) {
-        printf ("%d 0x%x (0x%x) x%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd)
-      }
-      .otherwise {
-        printf ("%d 0x%x (0x%x)\n", priv, pc, inst)
+
+      when (ll_wen && rf_waddr != UInt(0)) {
+        printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
       }
     }
 
-    when (ll_wen && rf_waddr =/= UInt(0)) {
-      printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
+      when (ll_wen && rf_waddr =/= UInt(0)) {
+        printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
+      }
+    } else {
+      printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
+        UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc,
+        Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
+        wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
+        wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
+        wb_reg_inst, wb_reg_inst)
     }
-  }
-  else {
-    printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
-         UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc,
-         Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
-         wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
-         wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
-         wb_reg_inst, wb_reg_inst)
   }
 
   if(p(UseDebug)) {
@@ -605,8 +609,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
     val ctm = Module(new RocketCoreTracer(
       id, isRead, isWrite,
-      isCsrRead, isCsrWrite, isCsrTrap,
-      true)(io.dbgrst))
+      isCsrRead, isCsrWrite, isCsrTrap
+    )(io.dbgrst))
     ctm.io.wb_valid := wb_valid
     ctm.io.wb_pc := wb_reg_pc
     ctm.io.wb_wdata := rf_wdata
