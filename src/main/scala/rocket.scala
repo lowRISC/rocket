@@ -540,8 +540,8 @@ class Rocket (id:Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
 
     val ctm = Module(new RocketCoreTracer(
       id, isRead, isWrite,
-      isCsrRead, isCsrWrite, isCsrTrap,
-      true)(io.dbgrst))
+      isCsrRead, isCsrWrite, isCsrTrap
+    )(io.dbgrst))
     ctm.io.wb_valid := wb_valid
     ctm.io.wb_pc := wb_reg_pc
     ctm.io.wb_wdata := rf_wdata
