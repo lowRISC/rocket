@@ -62,7 +62,7 @@ trait HasCoreParameters extends HasAddrMapParameters {
   val usingPerfCounters = p(UsePerfCounters)
 
   if (fastLoadByte) require(fastLoadWord)
-  val emitLog = params(EmitLogMessages)
+  val emitLog = p(EmitLogMessages)
 }
 
 abstract class CoreModule(implicit val p: Parameters) extends Module
@@ -580,7 +580,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
           printf ("%d 0x%x (0x%x) x%d p%d 0xXXXXXXXXXXXXXXXX\n", priv, pc, inst, rd, rd)
       }
 
-      when (ll_wen && rf_waddr != UInt(0)) {
+      when (ll_wen && rf_waddr =/= UInt(0)) {
         printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
       }
     }
