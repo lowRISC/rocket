@@ -214,7 +214,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     CSRs.mepc -> reg_mepc.sextTo(xLen),
     CSRs.mbadaddr -> reg_mbadaddr.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
-    CSRs.mhartid -> UInt(id))
+    CSRs.mhartid -> UInt(id)
+    CSRs.swtrace -> UInt(0))
 
   if (usingFPU) {
     read_mapping += CSRs.fflags -> reg_fflags

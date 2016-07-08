@@ -301,6 +301,7 @@ object CSRs {
   val msinstret_deltah = 0x786
   val mcycleh = 0xf80
   val minstreth = 0xf82
+  val swtrace = 0x8ff
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
     res += fflags
@@ -350,6 +351,7 @@ object CSRs {
     res += mimpid
     res += mhartid
     res += mreset
+    res += swtrace
     res.toArray
   }
   val all32 = {
