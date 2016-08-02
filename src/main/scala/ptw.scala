@@ -5,33 +5,33 @@ package rocket
 import Chisel._
 import uncore._
 import Util._
+import cde.{Parameters, Field}
 
-class PTWReq extends CoreBundle {
+class PTWReq(implicit p: Parameters) extends CoreBundle()(p) {
   val addr = UInt(width = vpnBits)
   val prv = Bits(width = 2)
   val store = Bool()
   val fetch = Bool()
 }
 
-class PTWResp extends CoreBundle {
-  val error = Bool()
+class PTWResp(implicit p: Parameters) extends CoreBundle()(p) {
   val pte = new PTE
 }
 
-class TLBPTWIO extends CoreBundle {
+class TLBPTWIO(implicit p: Parameters) extends CoreBundle()(p) {
   val req = Decoupled(new PTWReq)
   val resp = Valid(new PTWResp).flip
   val status = new MStatus().asInput
   val invalidate = Bool(INPUT)
 }
 
-class DatapathPTWIO extends CoreBundle {
-  val ptbr = UInt(INPUT, paddrBits)
+class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p) {
+  val ptbr = UInt(INPUT, ppnBits)
   val invalidate = Bool(INPUT)
   val status = new MStatus().asInput
 }
 
-class PTE extends CoreBundle {
+class PTE(implicit p: Parameters) extends CoreBundle()(p) {
   val ppn = Bits(width = ppnBits)
   val reserved_for_software = Bits(width = 3)
   val d = Bool()
@@ -51,15 +51,14 @@ class PTE extends CoreBundle {
     Mux(prv(0), Mux(fetch, sx(), Mux(store, sw(), sr())), Mux(fetch, ux(), Mux(store, uw(), ur())))
 }
 
-class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
-{
+class PTW(n: Int)(implicit p: Parameters) extends CoreModule()(p) {
   val io = new Bundle {
-    val requestor = Vec(new TLBPTWIO, n).flip
+    val requestor = Vec(n, new TLBPTWIO).flip
     val mem = new HellaCacheIO
     val dpath = new DatapathPTWIO
   }
   
-  val s_ready :: s_req :: s_wait :: s_set_dirty :: s_wait_dirty :: s_done :: s_error :: Nil = Enum(UInt(), 7)
+  val s_ready :: s_req :: s_wait :: s_set_dirty :: s_wait_dirty :: s_done :: Nil = Enum(UInt(), 6)
   val state = Reg(init=s_ready)
   val count = Reg(UInt(width = log2Up(pgLevels)))
 
@@ -79,16 +78,16 @@ class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   when (arb.io.out.fire()) {
     r_req := arb.io.out.bits
     r_req_dest := arb.io.chosen
-    r_pte.ppn := io.dpath.ptbr(paddrBits-1,pgIdxBits)
+    r_pte.ppn := io.dpath.ptbr
   }
 
   val (pte_cache_hit, pte_cache_data) = {
     val size = log2Up(pgLevels * 2)
     val plru = new PseudoLRU(size)
-    val valid = Reg(Vec(Bool(), size))
+    val valid = Reg(Vec(size, Bool()))
     val validBits = valid.toBits
-    val tags = Mem(UInt(width = paddrBits), size)
-    val data = Mem(UInt(width = ppnBits), size)
+    val tags = Mem(size, UInt(width = paddrBits))
+    val data = Mem(size, UInt(width = ppnBits))
 
     val hits = Vec(tags.map(_ === pte_addr)).toBits & validBits
     val hit = hits.orR
@@ -119,19 +118,16 @@ class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
   io.mem.req.bits.cmd  := Mux(state === s_set_dirty, M_XA_OR, M_XRD)
   io.mem.req.bits.typ  := MT_D
   io.mem.req.bits.addr := pte_addr
-  io.mem.req.bits.kill := Bool(false)
-  io.mem.req.bits.data := pte_wdata.toBits
+  io.mem.s1_data := pte_wdata.toBits
+  io.mem.s1_kill := Bool(false)
+  io.mem.invalidate_lr := Bool(false)
   
-  val resp_err = state === s_error
-  val resp_val = state === s_done || resp_err
-
   val r_resp_ppn = io.mem.req.bits.addr >> pgIdxBits
   val resp_ppn = Vec((0 until pgLevels-1).map(i => Cat(r_resp_ppn >> pgLevelBits*(pgLevels-i-1), r_req.addr(pgLevelBits*(pgLevels-i-1)-1,0))) :+ r_resp_ppn)(count)
+  val resp_val = state === s_done
 
   for (i <- 0 until io.requestor.size) {
-    val me = r_req_dest === UInt(i)
-    io.requestor(i).resp.valid := resp_val && me
-    io.requestor(i).resp.bits.error := resp_err
+    io.requestor(i).resp.valid := resp_val && (r_req_dest === i)
     io.requestor(i).resp.bits.pte := r_pte
     io.requestor(i).resp.bits.pte.ppn := resp_ppn
     io.requestor(i).invalidate := io.dpath.invalidate
@@ -157,17 +153,17 @@ class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
       }
     }
     is (s_wait) {
-      when (io.mem.resp.bits.nack) {
+      when (io.mem.s2_nack) {
         state := s_req
       }
       when (io.mem.resp.valid) {
-        state := s_error
+        state := s_done
+        when (pte.leaf() && set_dirty_bit) {
+          state := s_set_dirty
+        }
         when (pte.table() && count < pgLevels-1) {
           state := s_req
           count := count + 1
-        }
-        when (pte.leaf()) {
-          state := Mux(set_dirty_bit, s_set_dirty, s_done)
         }
       }
     }
@@ -177,7 +173,7 @@ class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
       }
     }
     is (s_wait_dirty) {
-      when (io.mem.resp.bits.nack) {
+      when (io.mem.s2_nack) {
         state := s_set_dirty
       }
       when (io.mem.resp.valid) {
@@ -185,9 +181,6 @@ class PTW(n: Int, resetSignal:Bool = null) extends CoreModule(resetSignal)
       }
     }
     is (s_done) {
-      state := s_ready
-    }
-    is (s_error) {
       state := s_ready
     }
   }

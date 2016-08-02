@@ -5,6 +5,7 @@ package rocket
 import Chisel._
 import uncore._
 import scala.math._
+import cde.{Parameters, Field}
 
 object Util {
   implicit def intToUInt(x: Int): UInt = UInt(x)
@@ -13,13 +14,21 @@ object Util {
   implicit def seqToVec[T <: Data](x: Seq[T]): Vec[T] = Vec(x)
   implicit def wcToUInt(c: WideCounter): UInt = c.value
   implicit def sextToConv(x: UInt) = new AnyRef {
-    def sextTo(n: Int): UInt = Cat(Fill(n - x.getWidth, x(x.getWidth-1)), x)
+    def sextTo(n: Int): UInt =
+      if (x.getWidth == n) x
+      else Cat(Fill(n - x.getWidth, x(x.getWidth-1)), x)
   }
 
   implicit def intToUnsigned(x: Int): Unsigned = new Unsigned(x)
   implicit def booleanToIntConv(x: Boolean) = new AnyRef {
     def toInt: Int = if (x) 1 else 0
   }
+
+  def minUInt(values: Seq[UInt]): UInt =
+    values.reduce((a, b) => Mux(a < b, a, b))
+
+  def minUInt(first: UInt, rest: UInt*): UInt =
+    minUInt(first +: rest.toSeq)
 }
 
 import Util._
@@ -151,5 +160,5 @@ object Random
   private def round(x: Double): Int =
     if (x.toInt.toDouble == x) x.toInt else (x.toInt + 1) & -2
   private def partition(value: UInt, slices: Int) =
-    Vec.tabulate(slices)(i => value < round((i << value.getWidth).toDouble / slices))
+    Seq.tabulate(slices)(i => value < round((i << value.getWidth).toDouble / slices))
 }
