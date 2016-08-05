@@ -302,7 +302,7 @@ class RoCCDecode(implicit val p: Parameters) extends DecodeConstants
     CUSTOM3_RD_RS1_RS2->List(Y,    N,Y,N,N,N,Y,Y,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,      MT_X, N,N,N,N,N,Y,CSR.N,N,N,N))
 }
 
-object TagDecode extends DecodeConstants
+class TagDecode(implicit val p: Parameters) extends DecodeConstants
 {
   val table: Array[(BitPat, List[BitPat])] = Array(
                 //               jal                                                                           fence.i

@@ -36,6 +36,7 @@ trait HasCoreParameters extends HasAddrMapParameters {
   val usingFPU = p(UseFPU)
   val usingFDivSqrt = p(FDivSqrt)
   val usingRoCC = !p(BuildRoCC).isEmpty
+  val usingTagMem = p(UseTagMem)
   val usingFastMulDiv = p(FastMulDiv)
   val fastLoadWord = p(FastLoadWord)
   val fastLoadByte = p(FastLoadByte)
@@ -125,18 +126,11 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     val dbgrst = Bool(INPUT)             // reset debug network
   }
 
-<<<<<<< HEAD
-  var decode_table = XDecode.table
-  if (!params(BuildFPU).isEmpty) decode_table ++= FDecode.table
-  if (!params(BuildFPU).isEmpty && params(FDivSqrt)) decode_table ++= FDivSqrtDecode.table
-  if (!params(BuildRoCC).isEmpty) decode_table ++= RoCCDecode.table
-  decode_table ++= TagDecode.table
-=======
   var decode_table = new XDecode().table
   if (usingFPU) decode_table ++= new FDecode().table
   if (usingFPU && usingFDivSqrt) decode_table ++= new FDivSqrtDecode().table
   if (usingRoCC) decode_table ++= new RoCCDecode().table
->>>>>>> origin/update
+  if (usingTagMem) decode_table ++= new TagDecode().table
 
   val ex_ctrl = Reg(new IntCtrlSigs)
   val mem_ctrl = Reg(new IntCtrlSigs)

@@ -7,7 +7,7 @@ import cde.{Parameters, Field}
 
 case object ICacheBufferWays extends Field[Boolean]
 
-trait HasL1CacheParameters extends HasCacheParameters with HasCoreParameters {
+trait HasL1CacheParameters extends HasCacheParameters with HasCoreParameters with HasTagParameters {
   val outerDataBeats = p(TLKey(p(TLId))).dataBeats
   val outerDataBits = p(TLKey(p(TLId))).dataBitsPerBeat
   val refillCyclesPerBeat = outerDataBits/rowBits
@@ -36,9 +36,6 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
   require(isPow2(nSets) && isPow2(nWays))
   require(isPow2(coreInstBytes))
   require(pgIdxBits >= untagBits)
-
-  // tag utilities
-  val tagUtil = new TagUtil(params(TagBits), coreDataBits)
 
   val s_ready :: s_request :: s_refill_wait :: s_refill :: Nil = Enum(UInt(), 4)
   val state = Reg(init=s_ready)
@@ -118,7 +115,7 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
     val data_array = SeqMem(nSets * refillCycles, Bits(width = code.width(rowBits)))
     val wen = narrow_grant.valid && repl_way === UInt(i)
     when (wen) {
-      val e_d = code.encode(tagUtil.removeTag(narrow_grant.bits.data).toUInt)
+      val e_d = code.encode(narrow_grant.bits.data).toUInt
       if(refillCycles > 1) data_array.write(Cat(s1_idx, refill_cnt), e_d)
       else data_array.write(s1_idx, e_d)
     }
@@ -131,10 +128,12 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
     val s2_hit = RegEnable(s1_hit, !stall)
     val s2_tag_hit = RegEnable(s1_tag_hit, !stall)
     val s2_dout = RegEnable(s1_dout, !stall)
-    io.resp.bits.datablock := Mux1H(s2_tag_hit, s2_dout)
+    val resp_datablock = Mux1H(s2_tag_hit, s2_dout)
+    io.resp.bits.datablock := if(useTagMem) tgHelper.removeTag(resp_datablock) else resp_datablock
     io.resp.valid := s2_hit
   } else {
-    io.resp.bits.datablock := Mux1H(s1_tag_hit, s1_dout)
+    val resp_datablock = Mux1H(s1_tag_hit, s1_dout)
+    io.resp.bits.datablock := if(useTagMem) tgHelper.removeTag(resp_datablock) else resp_datablock
     io.resp.valid := s1_hit
   }
   io.mem.acquire.valid := (state === s_request)
