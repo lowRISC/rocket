@@ -14,7 +14,7 @@ case object ReplayQueueDepth extends Field[Int]
 case object NMSHRs extends Field[Int]
 case object LRSCCycles extends Field[Int]
 
-trait HasL1HellaCacheParameters extends HasL1CacheParameters with HasTagParameters {
+trait HasL1HellaCacheParameters extends HasL1CacheParameters {
   val wordBits = p(WordBits)
   val wordBytes = wordBits/8
   val wordOffBits = log2Up(wordBytes)
