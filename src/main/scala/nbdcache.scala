@@ -191,9 +191,9 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val loadgen = new LoadGen(req.typ, req.addr, grant_word, req_cmd_sc, wordBytes)
 
   val beat_mask = (storegen.mask << Cat(beatOffset(req.addr), UInt(0, wordOffBits)))
-  val beat_mask_tagged = if(UseTagMem) tgHelper.insertTagMask(beat_mask) else beat_mask
+  val beat_mask_tagged = if(useTagMem) tgHelper.insertTagMask(beat_mask) else beat_mask
   val beat_data = Fill(beatWords, storegen.data)
-  val beat_data_tagged = if(UseTagMem) tgHelper.insertTag(beat_data) else beat_data
+  val beat_data_tagged = if(useTagMem) tgHelper.insertTag(beat_data) else beat_data
 
   val addr_block = req.addr(paddrBits - 1, blockOffBits)
   val addr_beat  = req.addr(blockOffBits - 1, beatOffBits)
@@ -1017,8 +1017,11 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
                              narrow_grant.bits.client_xact_id < UInt(nMSHRs)
   writeArb.io.in(1).bits.addr := mshrs.io.refill.addr
   writeArb.io.in(1).bits.way_en := mshrs.io.refill.way_en
-  writeArb.io.in(1).bits.wmask := if(useTagMem) tgHelper.insertTagMask(~UInt(0, rowWords), Bool(true))
-                                  else          ~UInt(0, rowWords)
+  if(useTagMem) {
+    writeArb.io.in(1).bits.wmask := tgHelper.insertTagMask(~UInt(0, rowWords), Bool(true))
+  } else {
+    writeArb.io.in(1).bits.wmask := ~UInt(0, rowWords)
+  }
   writeArb.io.in(1).bits.data := narrow_grant.bits.data(encRowBits-1,0)
   data.io.read <> readArb.io.out
   readArb.io.out.ready := !narrow_grant.valid || narrow_grant.ready // insert bubble if refill gets blocked

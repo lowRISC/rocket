@@ -129,11 +129,19 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
     val s2_tag_hit = RegEnable(s1_tag_hit, !stall)
     val s2_dout = RegEnable(s1_dout, !stall)
     val resp_datablock = Mux1H(s2_tag_hit, s2_dout)
-    io.resp.bits.datablock := if(useTagMem) tgHelper.removeTag(resp_datablock) else resp_datablock
+    if(useTagMem) {
+      io.resp.bits.datablock := tgHelper.removeTag(resp_datablock)
+    } else {
+      io.resp.bits.datablock := resp_datablock
+    }
     io.resp.valid := s2_hit
   } else {
     val resp_datablock = Mux1H(s1_tag_hit, s1_dout)
-    io.resp.bits.datablock := if(useTagMem) tgHelper.removeTag(resp_datablock) else resp_datablock
+    if(useTagMem) {
+      io.resp.bits.datablock := tgHelper.removeTag(resp_datablock)
+    } else {
+      io.resp.bits.datablock := resp_datablock
+    }
     io.resp.valid := s1_hit
   }
   io.mem.acquire.valid := (state === s_request)
