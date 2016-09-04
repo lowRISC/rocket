@@ -25,9 +25,8 @@ trait HasL1HellaCacheParameters extends HasL1CacheParameters {
   val idxLSB = blockOffBits
   val offsetmsb = idxLSB-1
   val offsetlsb = wordOffBits
-  val rowBitsUntagged = if(useTagMem) tgHelper.sizeWithoutTag(rowBits) else rowBits
   val coreDataBitsTagged = if(useTagMem) tgHelper.sizeWithTag(coreDataBits) else coreDataBits
-  val rowWords = rowBitsUntagged/wordBits
+  val rowWords = rowBits/wordBits
   val doNarrowRead = coreDataBitsTagged * nWays % rowBits == 0
   val encDataBits = code.width(coreDataBitsTagged)
   val encRowBits = encDataBits*rowWords
@@ -164,12 +163,16 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
   def beatOffset(addr: UInt) = // TODO zero-width
     if (beatOffBits > wordOffBits) addr(beatOffBits - 1, wordOffBits)
-    else UInt(0)
+    else UInt(0,1)
 
   def wordFromBeat(addr: UInt, dat: UInt) = {
-    val shift = Cat(beatOffset(addr), UInt(0, wordOffBits + log2Up(wordBytes)))
-    val shiftTagged = if(useTagMem) tgHelper.sizeWithTag(shift) else shift
-    (dat >> shiftTagged)(wordBits - 1, 0)
+    val shift = Wire(UInt(width=dat.getWidth))
+    if(useTagMem) {
+      shift := beatOffset(addr) * UInt(tgHelper.sizeWithTag(wordBits))
+    } else {
+      shift :=  beatOffset(addr) * UInt(wordBits)
+    }
+    (dat >> shift)(wordBits - 1, 0)
   }
 
   val req = Reg(new HellaCacheReq)

@@ -10,8 +10,10 @@ case object ICacheBufferWays extends Field[Boolean]
 trait HasL1CacheParameters extends HasCacheParameters with HasCoreParameters with HasTagParameters {
   val outerDataBeats = p(TLKey(p(TLId))).dataBeats
   val outerDataBits = p(TLKey(p(TLId))).dataBitsPerBeat
+  val outerDataBytes = outerDataBits/8
   val refillCyclesPerBeat = outerDataBits/rowBits
   val refillCycles = refillCyclesPerBeat*outerDataBeats
+  val rowBitsTagged = if(useTagMem) tgHelper.sizeWithTag(rowBits) else rowBits
 }
 
 class ICacheReq(implicit p: Parameters) extends CoreBundle()(p) {
@@ -99,7 +101,7 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
 
   val s1_tag_match = Wire(Vec(nWays, Bool()))
   val s1_tag_hit = Wire(Vec(nWays, Bool()))
-  val s1_dout = Wire(Vec(nWays, Bits(width = rowBits)))
+  val s1_dout = Wire(Vec(nWays, Bits(width = rowBitsTagged)))
 
   for (i <- 0 until nWays) {
     val s1_vb = !io.invalidate && vb_array(Cat(UInt(i), s1_pgoff(untagBits-1,blockOffBits))).toBool
@@ -112,7 +114,7 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
   s1_any_tag_hit := s1_tag_hit.reduceLeft(_||_) && !s1_disparity.reduceLeft(_||_)
 
   for (i <- 0 until nWays) {
-    val data_array = SeqMem(nSets * refillCycles, Bits(width = code.width(rowBits)))
+    val data_array = SeqMem(nSets * refillCycles, Bits(width = code.width(rowBitsTagged)))
     val wen = narrow_grant.valid && repl_way === UInt(i)
     when (wen) {
       val e_d = code.encode(narrow_grant.bits.data).toUInt
