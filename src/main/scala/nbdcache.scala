@@ -27,7 +27,7 @@ trait HasL1HellaCacheParameters extends HasL1CacheParameters {
   val offsetlsb = wordOffBits
   val coreDataBitsTagged = if(useTagMem) tgHelper.sizeWithTag(coreDataBits) else coreDataBits
   val rowWords = rowBits/wordBits
-  val doNarrowRead = coreDataBitsTagged * nWays % rowBits == 0
+  val doNarrowRead = coreDataBits * nWays % rowBits == 0
   val encDataBits = code.width(coreDataBitsTagged)
   val encRowBits = encDataBits*rowWords
   val sdqDepth = p(StoreDataQueueDepth)
@@ -166,13 +166,11 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     else UInt(0,1)
 
   def wordFromBeat(addr: UInt, dat: UInt) = {
-    val shift = Wire(UInt(width=dat.getWidth))
     if(useTagMem) {
-      shift := beatOffset(addr) * UInt(tgHelper.sizeWithTag(wordBits))
+      (dat >> beatOffset(addr) * UInt(tgHelper.sizeWithTag(wordBits)))(wordBits - 1, 0)
     } else {
-      shift :=  beatOffset(addr) * UInt(wordBits)
+      (dat >> beatOffset(addr) * UInt(wordBits))(wordBits - 1, 0)
     }
-    (dat >> shift)(wordBits - 1, 0)
   }
 
   val req = Reg(new HellaCacheReq)
@@ -1020,11 +1018,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
                              narrow_grant.bits.client_xact_id < UInt(nMSHRs)
   writeArb.io.in(1).bits.addr := mshrs.io.refill.addr
   writeArb.io.in(1).bits.way_en := mshrs.io.refill.way_en
-  if(useTagMem) {
-    writeArb.io.in(1).bits.wmask := tgHelper.insertTagMask(~UInt(0, rowWords), Bool(true))
-  } else {
-    writeArb.io.in(1).bits.wmask := ~UInt(0, rowWords)
-  }
+  writeArb.io.in(1).bits.wmask := ~UInt(0, rowWords)
   writeArb.io.in(1).bits.data := narrow_grant.bits.data(encRowBits-1,0)
   data.io.read <> readArb.io.out
   readArb.io.out.ready := !narrow_grant.valid || narrow_grant.ready // insert bubble if refill gets blocked
