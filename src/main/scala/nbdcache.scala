@@ -852,7 +852,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     s2_req.cmd := s1_req.cmd
   }
 
-  val misaligned = new StoreGen(s1_req.typ, s1_req.addr, UInt(0), wordBytes).misaligned
+  val misaligned = new StoreGen(s1_req.typ, s1_req.addr, UInt(0), wordBytes, tgBits).misaligned
   io.cpu.xcpt.ma.ld := s1_read && misaligned
   io.cpu.xcpt.ma.st := s1_write && misaligned
   io.cpu.xcpt.pf.ld := s1_read && dtlb.io.resp.xcpt_ld
@@ -950,7 +950,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
   // store/amo hits
   s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd)
-  val amoalu = Module(new AMOALU)
+  val amoalu = Module(new AMOALU(tagBits=tgBits))
   when ((s2_valid || s2_replay) && (isWrite(s2_req.cmd) || s2_data_correctable)) {
     s3_req := s2_req
     s3_req_data := Mux(s2_data_correctable, s2_data_corrected(s2_word_idx), amoalu.io.out)
@@ -1056,7 +1056,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   // load data subword mux/sign extension
   val s2_data_word_prebypass = s2_data_uncorrected >> Cat(s2_word_idx, Bits(0,log2Up(coreDataBits)))
   val s2_data_word = Mux(s2_store_bypass, s2_store_bypass_data, s2_data_word_prebypass)
-  val loadgen = new LoadGen(s2_req.typ, s2_req.addr, s2_data_word, s2_sc, wordBytes)
+  val loadgen = new LoadGen(s2_req.typ, s2_req.addr, s2_data_word, s2_sc, wordBytes, tgBits)
   
   amoalu.io.addr := s2_req.addr
   amoalu.io.cmd := s2_req.cmd
