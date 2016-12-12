@@ -71,23 +71,40 @@ abstract class CoreModule(implicit val p: Parameters) extends Module
 abstract class CoreBundle(implicit val p: Parameters) extends ParameterizedBundle()(p)
   with HasCoreParameters
 
-class RegFile(n: Int, w: Int, zero: Boolean = false) {
-  private val rf = Mem(n, UInt(width = w))
-  private def access(addr: UInt) = rf(~addr(log2Up(n)-1,0))
-  private val reads = collection.mutable.ArrayBuffer[(UInt,UInt)]()
+class RegFile(n: Int, w: Int, t:Int, zero: Boolean = false) {
+  private val data = Mem(n, UInt(width = w))
+  private val tag  = Mem(n, UInt(width = t))
+  private def access_data(addr: UInt) = data(~addr(log2Up(n)-1,0))
+  private def access_tag(addr: UInt)  = tag(~addr(log2Up(n)-1,0))
+  private val data_reads = collection.mutable.ArrayBuffer[(UInt,UInt)]()
+  private val tag_reads = collection.mutable.ArrayBuffer[(UInt,UInt)]()
   private var canRead = true
-  def read(addr: UInt) = {
+  def read_data(addr: UInt) = {
     require(canRead)
-    reads += addr -> Wire(UInt())
-    reads.last._2 := Mux(Bool(zero) && addr === UInt(0), UInt(0), access(addr))
-    reads.last._2
+    data_reads += addr -> Wire(UInt())
+    data_reads.last._2 := Mux(Bool(zero) && addr === UInt(0), UInt(0), access_data(addr))
+    data_reads.last._2
   }
-  def write(addr: UInt, data: UInt) = {
+  def read_tag(addr: UInt) = {
+    require(canRead)
+    tag_reads += addr -> Wire(UInt())
+    tag_reads.last._2 := Mux(Bool(zero) && addr === UInt(0), UInt(0), access_tag(addr))
+    tag_reads.last._2
+  }
+  def write_data(addr: UInt, data: UInt) = {
     canRead = false
     when (addr =/= UInt(0)) {
-      access(addr) := data
-      for ((raddr, rdata) <- reads)
+      access_data(addr) := data
+      for ((raddr, rdata) <- data_reads)
         when (addr === raddr) { rdata := data }
+    }
+  }
+  def write_tag(addr: UInt, tag: UInt) = {
+    canRead = false
+    when (addr =/= UInt(0)) {
+      access_tag(addr) := tag
+      for ((raddr, rtag) <- tag_reads)
+        when (addr === raddr) { rtag := tag }
     }
   }
 }
