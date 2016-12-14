@@ -273,8 +273,8 @@ object CSRs {
   val mbadaddr = 0x343
   val mip = 0x344
   val mipi = 0x345
-  val mucounteren = 0x310
-  val mscounteren = 0x311
+  val mucounteren = 0x320
+  val mscounteren = 0x321
   val mucycle_delta = 0x700
   val mutime_delta = 0x701
   val muinstret_delta = 0x702
