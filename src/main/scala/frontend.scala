@@ -12,6 +12,7 @@ class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
 class FrontendResp(implicit p: Parameters) extends CoreBundle()(p) {
   val pc = UInt(width = vaddrBitsExtended)  // ID stage PC
   val data = Vec(fetchWidth, Bits(width = coreInstBits))
+  val tag = Vec(fetchWidth, Bits(width = tgBits))
   val mask = Bits(width = fetchWidth)
   val xcpt_if = Bool()
 }
@@ -48,6 +49,7 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
   val s2_xcpt_if = Reg(init=Bool(false))
   val s2_resp_valid = Wire(init=Bool(false))
   val s2_resp_data = Wire(UInt(width = rowBits))
+  val s2_resp_tag = Wire(UInt(width = rowTagBits))
 
   val ntpc_0 = ~(~s1_pc | (coreInstBytes*fetchWidth-1)) + UInt(coreInstBytes*fetchWidth)
   val ntpc = // don't increment PC into virtual address space hole
@@ -118,6 +120,7 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
 
     s2_resp_valid := icache.io.resp.valid
     s2_resp_data := icache.io.resp.bits.datablock
+    s2_resp_tag := icache.io.resp.bits.tagblock
   } else {
     val icbuf = Module(new Queue(new ICacheResp, 1, pipe=true))
     icbuf.io.enq <> icache.io.resp
@@ -125,6 +128,7 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
 
     s2_resp_valid := icbuf.io.deq.valid
     s2_resp_data := icbuf.io.deq.bits.datablock
+    s2_resp_tag := icbuf.io.deq.bits.tagblock
   }
 
   require(fetchWidth * coreInstBytes <= rowBytes)
@@ -132,9 +136,16 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
     if (fetchWidth * coreInstBytes == rowBytes) s2_resp_data
     else s2_resp_data >> (s2_pc(log2Up(rowBytes)-1,log2Up(fetchWidth*coreInstBytes)) << log2Up(fetchWidth*coreInstBits))
 
+  require(fetchWidth < 2 && coreInstBytes == 4)
+  val fetch_tag =
+    if (rowBytes == 8) s2_resp_tag
+    else s2_resp_tag >> (s2_pc(log2Up(rowBytes)-1,3) * tgBits)
+
   for (i <- 0 until fetchWidth) {
     io.cpu.resp.bits.data(i) := fetch_data(i*coreInstBits+coreInstBits-1, i*coreInstBits)
+    io.cpu.resp.bits.tag(i) := fetch_tag(tgBits-1,0)
   }
+
 
   val all_ones = UInt((1 << (fetchWidth+1))-1)
   val msk_pc = if (fetchWidth == 1) all_ones else all_ones << s2_pc(log2Up(fetchWidth) -1+2,2)

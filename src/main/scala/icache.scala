@@ -13,7 +13,6 @@ trait HasL1CacheParameters extends HasCacheParameters with HasCoreParameters wit
   val outerDataBytes = outerDataBits/8
   val refillCyclesPerBeat = outerDataBits/rowBits
   val refillCycles = refillCyclesPerBeat*outerDataBeats
-  val rowBitsTagged = if(useTagMem) tgHelper.sizeWithTag(rowBits) else rowBits
 }
 
 class ICacheReq(implicit p: Parameters) extends CoreBundle()(p) {
@@ -23,6 +22,7 @@ class ICacheReq(implicit p: Parameters) extends CoreBundle()(p) {
 class ICacheResp(implicit p: Parameters) extends CoreBundle()(p) with HasL1CacheParameters {
   val data = Bits(width = coreInstBits)
   val datablock = Bits(width = rowBits)
+  val tagblock = Bits(width = rowTagBits)
 }
 
 class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CacheParameters {
@@ -101,7 +101,8 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
 
   val s1_tag_match = Wire(Vec(nWays, Bool()))
   val s1_tag_hit = Wire(Vec(nWays, Bool()))
-  val s1_dout = Wire(Vec(nWays, Bits(width = rowBitsTagged)))
+  val s1_dout = Wire(Vec(nWays, Bits(width = rowBits)))
+  val s1_tout = Wire(init=Vec.fill(nWays)(Bits(0, width = rowTagBits)))
 
   for (i <- 0 until nWays) {
     val s1_vb = !io.invalidate && vb_array(Cat(UInt(i), s1_pgoff(untagBits-1,blockOffBits))).toBool
@@ -114,15 +115,21 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
   s1_any_tag_hit := s1_tag_hit.reduceLeft(_||_) && !s1_disparity.reduceLeft(_||_)
 
   for (i <- 0 until nWays) {
-    val data_array = SeqMem(nSets * refillCycles, Bits(width = code.width(rowBitsTagged)))
+    val data_array = if(useTagMem) SeqMem(nSets * refillCycles, Bits(width = code.width(rowBits)+rowTagBits))
+                     else SeqMem(nSets * refillCycles, Bits(width = code.width(rowBits)))
     val wen = narrow_grant.valid && repl_way === UInt(i)
     when (wen) {
-      val e_d = code.encode(narrow_grant.bits.data).toUInt
+      val e_d = if(useTagMem) Cat(code.encode(narrow_grant.bits.data).toUInt, narrow_grant.bits.tag)
+                else code.encode(narrow_grant.bits.data).toUInt
       if(refillCycles > 1) data_array.write(Cat(s1_idx, refill_cnt), e_d)
       else data_array.write(s1_idx, e_d)
     }
     val s0_raddr = s0_pgoff(untagBits-1,blockOffBits-(if(refillCycles > 1) refill_cnt.getWidth else 0))
-    s1_dout(i) := data_array.read(s0_raddr, !wen && s0_valid)
+    val rdout = data_array.read(s0_raddr, !wen && s0_valid)
+    s1_dout(i) := rdout >> rowTagBits
+    if(useTagMem) {
+      s1_tout(i) := rdout(rowTagBits-1,0)
+    }
   }
 
   // output signals
@@ -130,20 +137,13 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
     val s2_hit = RegEnable(s1_hit, !stall)
     val s2_tag_hit = RegEnable(s1_tag_hit, !stall)
     val s2_dout = RegEnable(s1_dout, !stall)
-    val resp_datablock = Mux1H(s2_tag_hit, s2_dout)
-    if(useTagMem) {
-      io.resp.bits.datablock := tgHelper.removeTag(resp_datablock)
-    } else {
-      io.resp.bits.datablock := resp_datablock
-    }
+    val s2_tout = RegEnable(s1_tout, !stall)
+    io.resp.bits.datablock := Mux1H(s2_tag_hit, s2_dout)
+    io.resp.bits.tagblock := Mux1H(s2_tag_hit, s2_tout)
     io.resp.valid := s2_hit
   } else {
-    val resp_datablock = Mux1H(s1_tag_hit, s1_dout)
-    if(useTagMem) {
-      io.resp.bits.datablock := tgHelper.removeTag(resp_datablock)
-    } else {
-      io.resp.bits.datablock := resp_datablock
-    }
+    io.resp.bits.datablock := Mux1H(s1_tag_hit, s1_dout)
+    io.resp.bits.tagblock := Mux1H(s1_tag_hit, s1_tout)
     io.resp.valid := s1_hit
   }
   io.mem.acquire.valid := (state === s_request)

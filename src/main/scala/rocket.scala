@@ -28,7 +28,7 @@ case object MtvecInit extends Field[BigInt]
 case object ResetVector extends Field[BigInt]
 case object EmitLogMessages extends Field[Boolean]
 
-trait HasCoreParameters extends HasAddrMapParameters {
+trait HasCoreParameters extends HasAddrMapParameters with HasTagParameters {
   implicit val p: Parameters
   val xLen = p(XLen)
 
