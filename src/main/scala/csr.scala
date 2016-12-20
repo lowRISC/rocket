@@ -155,6 +155,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_mbadaddr = Reg(UInt(width = vaddrBitsExtended))
   val reg_mscratch = Reg(Bits(width = xLen))
   val reg_mtvec = Reg(init=UInt(p(MtvecInit), paddrBits min xLen))
+  val reg_mucounteren = Reg(UInt(width = 32))
+  val reg_mscounteren = Reg(UInt(width = 32))
 
   val reg_sepc = Reg(UInt(width = vaddrBitsExtended))
   val reg_scause = Reg(Bits(width = xLen))
@@ -169,7 +171,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_frm = Reg(UInt(width = 3))
 
   val reg_instret = WideCounter(64, io.retire)
-  val reg_cycle: UInt = if (enableCommitLog) { reg_instret } else { WideCounter(64) }
+  val reg_cycle = if (enableCommitLog) reg_instret else WideCounter(64)
 
   val mip = Wire(init=reg_mip)
   mip.irq := io.irq
@@ -247,10 +249,16 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_mapping += CSRs.sasid -> UInt(0)
     read_mapping += CSRs.sepc -> reg_sepc.sextTo(xLen)
     read_mapping += CSRs.stvec -> reg_stvec.sextTo(xLen)
-    read_mapping += CSRs.mscounteren -> UInt(0)
     read_mapping += CSRs.mstime_delta -> UInt(0)
     read_mapping += CSRs.mscycle_delta -> UInt(0)
     read_mapping += CSRs.msinstret_delta -> UInt(0)
+    read_mapping += CSRs.mscounteren -> reg_mscounteren
+  }
+
+  if (usingVM) {
+    read_mapping += CSRs.mucounteren -> reg_mucounteren
+    read_mapping += CSRs.cycle -> reg_cycle
+    read_mapping += CSRs.instret -> reg_instret
   }
 
   if (xLen == 32) {
@@ -284,6 +292,10 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val fp_csr =
     if (usingFPU) decoded_addr(CSRs.fflags) || decoded_addr(CSRs.frm) || decoded_addr(CSRs.fcsr)
     else Bool(false)
+  val hpm_csr = if (usingVM) io.rw.addr >= CSRs.cycle && io.rw.addr < CSRs.cycle + 3 else Bool(false)
+  val hpm_en = reg_mstatus.prv === PRV.M ||
+    (reg_mstatus.prv === PRV.S && reg_mscounteren(io.rw.addr(7, 0))) ||
+    (reg_mstatus.prv === PRV.U && reg_mucounteren(io.rw.addr(7, 0)))
   val csr_addr_priv = io.rw.addr(9,8)
   val priv_sufficient = reg_mstatus.prv >= csr_addr_priv
   val read_only = io.rw.addr(11,10).andR
@@ -302,7 +314,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val insn_wfi = do_system_insn && opcode(5)
 
   val csr_xcpt = (cpu_wen && read_only) ||
-    (cpu_ren && (!priv_sufficient || !addr_valid || fp_csr && !io.status.fs.orR)) ||
+    (cpu_ren && (!priv_sufficient || !addr_valid || (hpm_csr && !hpm_en) || (fp_csr && !io.status.fs.orR))) |
     (system_insn && !priv_sufficient) ||
     insn_call || insn_break
 
@@ -430,6 +442,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.mtvec))  { reg_mtvec := wdata >> 2 << 2 }
     when (decoded_addr(CSRs.mcause))   { reg_mcause := wdata & UInt((BigInt(1) << (xLen-1)) + 31) /* only implement 5 LSBs and MSB */ }
     when (decoded_addr(CSRs.mbadaddr)) { reg_mbadaddr := wdata(vaddrBitsExtended-1,0) }
+    writeCounter(CSRs.mcycle, reg_cycle, wdata)
+    writeCounter(CSRs.minstret, reg_instret, wdata)
     if (usingFPU) {
       when (decoded_addr(CSRs.fflags)) { reg_fflags := wdata }
       when (decoded_addr(CSRs.frm))    { reg_frm := wdata }
@@ -458,6 +472,10 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.sbadaddr)) { reg_sbadaddr := wdata(vaddrBitsExtended-1,0) }
       when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata & delegable_interrupts }
       when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata & delegable_exceptions }
+      when (decoded_addr(CSRs.mscounteren)) { reg_mscounteren := wdata & 7 }
+    }
+    if (usingVM) {
+      when (decoded_addr(CSRs.mucounteren)) { reg_mucounteren := wdata & 7 }
     }
   }
 
@@ -466,4 +484,14 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csr.waddr := io.rw.addr
   io.rocc.csr.wdata := wdata
   io.rocc.csr.wen := wen
+
+  def writeCounter(lo: Int, ctr: WideCounter, wdata: UInt) = {
+    if (xLen == 32) {
+      val hi = lo + CSRs.mcycleh - CSRs.mcycle
+      when (decoded_addr(lo)) { ctr := Cat(ctr(63, 32), wdata) }
+      when (decoded_addr(hi)) { ctr := Cat(wdata, ctr(31, 0)) }
+    } else {
+      when (decoded_addr(lo)) { ctr := wdata }
+    }
+  }
 }
