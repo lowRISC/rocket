@@ -4,6 +4,7 @@ import Chisel._
 import uncore._
 import Util._
 import cde.{Parameters, Field}
+import scala.math.max
 
 class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
   val pc = UInt(width = vaddrBitsExtended)
@@ -12,7 +13,7 @@ class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
 class FrontendResp(implicit p: Parameters) extends CoreBundle()(p) {
   val pc = UInt(width = vaddrBitsExtended)  // ID stage PC
   val data = Vec(fetchWidth, Bits(width = coreInstBits))
-  val tag = Vec(fetchWidth, Bits(width = tgBits))
+  val tag = Vec(fetchWidth, Bits(width = tgInstBits))
   val mask = Bits(width = fetchWidth)
   val xcpt_if = Bool()
 }
@@ -135,15 +136,14 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
   val fetch_data =
     if (fetchWidth * coreInstBytes == rowBytes) s2_resp_data
     else s2_resp_data >> (s2_pc(log2Up(rowBytes)-1,log2Up(fetchWidth*coreInstBytes)) << log2Up(fetchWidth*coreInstBits))
-
-  require(fetchWidth < 2 && coreInstBytes == 4)
   val fetch_tag =
-    if (rowBytes == 8) s2_resp_tag
-    else s2_resp_tag >> (s2_pc(log2Up(rowBytes)-1,3) * tgBits)
+    if (fetchWidth * coreInstBytes == rowBytes) s2_resp_tag
+    else s2_resp_tag >> (s2_pc(log2Up(rowBytes)-1,2) * tgBits / 2)
 
+  val coreInstTagBitsMax = max(coreInstBits, 32) / 32 * (tgBits/2)
   for (i <- 0 until fetchWidth) {
     io.cpu.resp.bits.data(i) := fetch_data(i*coreInstBits+coreInstBits-1, i*coreInstBits)
-    io.cpu.resp.bits.tag(i) := fetch_tag(tgBits-1,0)
+    io.cpu.resp.bits.tag(i) := fetch_tag(i*coreInstTagBitsMax+tgInstBits-1, i*coreInstTagBitsMax)
   }
 
 
