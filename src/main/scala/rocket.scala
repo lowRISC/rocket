@@ -147,7 +147,6 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   if (usingFPU) decode_table ++= new FDecode().table
   if (usingFPU && usingFDivSqrt) decode_table ++= new FDivSqrtDecode().table
   if (usingRoCC) decode_table ++= new RoCCDecode().table
-  if (usingTagMem) decode_table ++= new TagDecode().table
 
   val ex_ctrl = Reg(new IntCtrlSigs)
   val mem_ctrl = Reg(new IntCtrlSigs)
@@ -205,8 +204,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val id_reg_fence = Reg(init=Bool(false))
   val id_ren = IndexedSeq(id_ctrl.rxs1, id_ctrl.rxs2)
   val id_raddr = IndexedSeq(id_raddr1, id_raddr2)
-  val rf = new RegFile(31, xLen)
-  val id_rs = id_raddr.map(rf.read _)
+  val rf = new RegFile(31, xLen, tgBits)
+  val id_rs = id_raddr.map(rf.read_data _)
   val ctrl_killd = Wire(Bool())
 
   val csr = Module(new CSRFile(id))
@@ -446,7 +445,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                  Mux(ll_wen, ll_wdata,
                  Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
                  wb_reg_wdata)))
-  when (rf_wen) { rf.write(rf_waddr, rf_wdata) }
+  when (rf_wen) { rf.write_data(rf_waddr, rf_wdata) }
 
   // hook up control/status regfile
   csr.io.exception := wb_reg_xcpt

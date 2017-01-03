@@ -1,4 +1,4 @@
 // See LICENSE for license details.
 
 package object rocket extends 
-  rocket.constants.ScalarOpConstants
+  rocket.constants.ScalarOpConstants with rocket.TagOpConstants
