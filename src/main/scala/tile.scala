@@ -148,6 +148,18 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
     }
   }
 
+  // conditial support of tagged memory
+  if (p(UseTagMem)) {
+    val tagRule = Module(new TagRule)
+    core.io.tgReq <> tagRule.io.cpu_req
+    core.io.tgCtl <> tagRule.io.cpu_ctl
+    dcache.io.tag <> tagRule.io.dmem_ctl
+  } else {
+    core.io.tgReq.ready := Bool(false)
+    core.io.tgCtl.valid := Bool(false)
+    dcache.io.tag.valid := Bool(false)
+  }
+
   // debug
   io.dbgnet <> core.io.dbgnet
   io.dbgrst <> core.io.dbgrst

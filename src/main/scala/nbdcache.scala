@@ -808,6 +808,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     val cpu = (new HellaCacheIO).flip
     val ptw = new TLBPTWIO()
     val mem = new ClientTileLinkIO
+    val tag = Valid(new TagMemCtl).flip
   }
  
   require(isPow2(nWays)) // TODO: relax this

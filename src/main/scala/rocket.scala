@@ -138,6 +138,10 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     val fpu = new FPUIO().flip
     val rocc = new RoCCInterface().flip
 
+    // tag rule table
+    val tgReq = Decoupled(new TagRuleReq)
+    val tgCtl = Valid(new TagCoreCtl).flip
+
     val irq = Bool(INPUT)
     val dbgnet = Vec(2, new DiiIO)       // debug network
     val dbgrst = Bool(INPUT)             // reset debug network
