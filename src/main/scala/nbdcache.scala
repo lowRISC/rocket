@@ -13,6 +13,7 @@ case object StoreDataQueueDepth extends Field[Int]
 case object ReplayQueueDepth extends Field[Int]
 case object NMSHRs extends Field[Int]
 case object LRSCCycles extends Field[Int]
+case object TagMemCheckFunc extends Field[(UInt, UInt, UInt) => Bool]
 
 trait HasL1HellaCacheParameters extends HasL1CacheParameters with HasTagParameters {
   implicit val p: Parameters

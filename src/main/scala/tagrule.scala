@@ -128,6 +128,10 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val ex_addr_mem = ex_addr_alu ^ UInt(ruleTableALUSize)
   val ex_alu_mem = ex_base < UInt(ruleTableALUSize) // use base address to identify which table to read
 
+  // assertion to make sure rs2_t is not used to generate a memory check
+  assert(ex_alu_mem || !(ex_hash === HASH_ADR_RS || ex_hash === HASH_ADR_ALL),
+         "rs2_tag cannot be used to address a memory check function!")
+
   // memory stage
   val mem_valid = Reg(next=ex_valid)
   val mem_read_table = RegEnable(ex_read_table, mem_valid)
