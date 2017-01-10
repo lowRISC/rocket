@@ -12,11 +12,27 @@ case object TagRuleMemSize extends Field[Int]
 trait TagOpConstants {
   val TG_OP_SZ      = 3
   val TG_OP_X       = BitPat("b???")
-  val TG_OP_NONE    = UInt(0, TG_OP_SZ)
-  val TG_OP_ALU     = UInt(1, TG_OP_SZ)
-  val TG_OP_MEM     = UInt(2, TG_OP_SZ)
+  val TG_OP_NONE    = UInt(0, TG_OP_SZ) // tag ignorant instructions
+  val TG_OP_ALU     = UInt(1, TG_OP_SZ) // tagged non-memory instructions
+  val TG_OP_MEM     = UInt(2, TG_OP_SZ) // tagged memory instructions
 }
 
+trait TagWBConstants {
+  val TG_WB_SZ      = 2
+  val TG_WB_X       = BitPat("b??")
+  val TG_WB_NONE    = UInt(0, TG_EX_SZ) // default
+  val TG_WB_R       = UInt(1, TG_EX_SZ) // read tag (rd, rd_t) <= (rs1_t, 0)
+  val TG_WB_W       = UInt(2, TG_EX_SZ) // write tag (rd, rd_t) <= (rd, rs1_t)
+}
+
+trait TagMEMConstants {
+  val TG_MEM_SZ     = 2
+  val TG_MEM_X      = BitPat("b??")
+  val TG_MEM_NONE   = UInt(0, TG_MEM_SZ) // default
+  val TG_MEM_T      = UInt(1, TG_MEM_SZ) // update tag only
+  val TG_MEM_D      = UInt(2, TG_MEM_SZ) // update data only
+  val TG_MEM_A      = UInt(3, TG_MEM_SZ) // update atomic operated tag
+}
 
 class TagRuleReq(implicit p: Parameters) extends CoreBundle()(p) {
   val tg_op = UInt(width=TG_OP_SZ)   // from ID
@@ -25,17 +41,26 @@ class TagRuleReq(implicit p: Parameters) extends CoreBundle()(p) {
   val rs2_tag = UInt(width=tgBits) // from EX
 }
 
-class TagCheck(implicit p: Parameters) extends CoreBundle()(p) {
-  val checkL = UInt(width=tgBits)
-  val checkR = UInt(width=tgBits)
+// control signals to data cache
+class TagMemCtl(implicit p: Parameters) extends CoreBundle()(p) {
+  val checkL = UInt(width=tgBits)      // a in the tag check (a, a')
+  val checkR = UInt(width=tgBits)      // a' in the tag check (a, a')
+  val op     = UInt(width=TG_MEM_SZ)   // operation indicator for data cache
+}
+
+// control signals to the core pipeline
+class TagCoreCtl(implicit p: Parameters) extends CoreBundle()(p) {
+  val tag       = UInt(width=tgBits)   // tag to update in WB
+  val op        = UInt(width=TG_WB_SZ) // operation idicator for WB
+  val xcpt      = Bool(OUTPUT)         // ALU tag check exception
+  val miss_hash = Bool(OUTPUT)         // miss in hash table
+  val miss_rule = Bool(OUTPUT)         // miss in rule table
 }
 
 class TagRuleIO(implicit p: Parameters) extends CoreBundle()(p) {
   val cpu_req = Decoupled(new TagRuleReq).flip
-  val cpu_tag = Valid(UInt(width=tgBits)) // update tag for rd
-  val dmem_check = Valid(new TagCheck)    // tag check for D$
-  val miss = Bool(OUTPUT)                 // miss in tag rule table
-  val xcpt = Bool(OUTPUT)                 // exception raised
+  val cpu_ctl  = Valid(new TagCoreCtl)
+  val dmem_ctl = Valid(new TagMemCtl)
 }
 
 trait TgHashOP {
@@ -152,12 +177,16 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val wb_checkR = RegEnable(mem_checkR, mem_valid)
 
   // output ports
-  io.cpu_tag.valid := wb_rd_update
-  io.cpu_tag.bits := wb_rd_tag
-  io.dmem_check.valid := wb_check
-  io.dmem_check.bits.checkL := wb_checkL
-  io.dmem_check.bits.checkR := wb_checkR
-  io.miss := Bool(false) // if miss in the future checked rule table
-  io.xcpt := wb_xcpt     // precise exception caused by a non-memory instruction's tag
+  io.cpu_ctl.valid          := wb_rd_update
+  io.cpu_ctl.bits.tag       := wb_rd_tag
+  io.cpu_ctl.bits.op        := TG_WB_NONE  // currently just default operation
+  io.cpu_ctl.bits.miss_hash := Bool(false) // No miss for current static hash table
+  io.cpu_ctl.bits.miss_rule := Bool(false) // No miss for current static rule table
+  io.cpu_ctl.bits.xcpt      := wb_xcpt     // precise exception caused by a non-memory instruction's tag
+
+  io.dmem_ctl.valid       := wb_check
+  io.dmem_ctl.bits.checkL := wb_checkL
+  io.dmem_ctl.bits.checkR := wb_checkR
+  io.dmem_ctl.bits.op     := TG_MEM_NONE // current just default operation
 
 }
