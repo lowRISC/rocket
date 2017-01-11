@@ -262,27 +262,31 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val mem_waddr = mem_reg_inst(11,7)
   val wb_waddr = wb_reg_inst(11,7)
   val bypass_sources = IndexedSeq(
-    (Bool(true), UInt(0), UInt(0)), // treat reading x0 as a bypass
-    (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata),
-    (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata),
-    (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data))
+    (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
+    (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
+    (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
+    (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.tagUpdate))
   val id_bypass_src = id_raddr.map(raddr => bypass_sources.map(s => s._1 && s._2 === raddr))
 
   // execute stage
-  val bypass_mux = Vec(bypass_sources.map(_._3))
+  val bypass_mux = Vec(bypass_sources.map(b => (b._3, b._4)))
   val ex_reg_rs_bypass = Reg(Vec(id_raddr.size, Bool()))
   val ex_reg_rs_lsb = Reg(Vec(id_raddr.size, UInt()))
   val ex_reg_rs_msb = Reg(Vec(id_raddr.size, UInt()))
   val ex_rs = for (i <- 0 until id_raddr.size)
-    yield Mux(ex_reg_rs_bypass(i), bypass_mux(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
+    yield Mux(ex_reg_rs_bypass(i),
+      bypass_mux(ex_reg_rs_lsb(i)),
+      (Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)), ex_reg_rs_tag(i))
+    )
   val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
   val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
-    A1_RS1 -> ex_rs(0).toSInt,
+    A1_RS1 -> ex_rs(0)._1.toSInt,
     A1_PC -> ex_reg_pc.toSInt))
   val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq(
-    A2_RS2 -> ex_rs(1).toSInt,
+    A2_RS2 -> ex_rs(1)._2.toSInt,
     A2_IMM -> ex_imm,
     A2_FOUR -> SInt(4)))
+
 
   val alu = Module(new ALU)
   alu.io.dw := ex_ctrl.alu_dw
