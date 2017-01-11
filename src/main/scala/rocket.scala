@@ -243,6 +243,15 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     (io.imem.resp.bits.xcpt_if, UInt(Causes.fault_fetch)),
     (id_illegal_insn,           UInt(Causes.illegal_instruction))))
 
+  if(p(usingTagMem)) {
+    // send tag request to tag rule table
+    io.tgReq.valid := !ctrl_killd
+    io.tgReq.bits.tg_op := id_ctrl.tg_op
+    io.tgReq.bits.inst_tag := io.imem.resp.bits.tag(0); require(fetchWidth == 1)
+  } else {
+    io.tgReq.valid := Bool(false)
+  }
+
   val dcache_bypass_data =
     if (fastLoadByte) io.dmem.resp.bits.data
     else if (fastLoadWord) io.dmem.resp.bits.data_word_bypass
