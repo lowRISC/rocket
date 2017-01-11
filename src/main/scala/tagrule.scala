@@ -36,7 +36,7 @@ trait TagMEMConstants {
 
 class TagRuleReq(implicit p: Parameters) extends CoreBundle()(p) {
   val tg_op = UInt(width=TG_OP_SZ)   // from ID
-  val instr_tag = UInt(width=tgBits) // from ID
+  val inst_tag = UInt(width=tgBits) // from ID
   val rs1_tag = UInt(width=tgBits) // from EX
   val rs2_tag = UInt(width=tgBits) // from EX
 }
@@ -131,7 +131,7 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val ex_valid = Reg(next=id_valid)
   val ex_rddata = hashTable.read(io.cpu_req.bits.tg_op, id_valid).toBits
   val ex_hash = ex_rddata(HASH_OP_SZ-1,0)
-  val ex_instr_tag = RegEnable(io.cpu_req.bits.instr_tag, id_valid)
+  val ex_inst_tag = RegEnable(io.cpu_req.bits.inst_tag, id_valid)
   val ex_rs1_tag = io.cpu_req.bits.rs1_tag
   val ex_rs2_tag = io.cpu_req.bits.rs2_tag
   val ex_rd_tag = Wire(init = UInt(0, tgBits))
@@ -145,9 +145,9 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val ex_offset = Wire(init = UInt(0, ruleTableAddrBits))
   switch(ex_hash) {
     is (HASH_ADR_RS1  ) { ex_offset := ex_rs1_tag                                }
-    is (HASH_ADR_INST ) { ex_offset := ex_instr_tag                              }
+    is (HASH_ADR_INST ) { ex_offset := ex_inst_tag                               }
     is (HASH_ADR_RS   ) { ex_offset := Cat(ex_rs2_tag, ex_rs1_tag)               }
-    is (HASH_ADR_ALL  ) { ex_offset := Cat(ex_instr_tag, ex_rs2_tag, ex_rs1_tag) }
+    is (HASH_ADR_ALL  ) { ex_offset := Cat(ex_inst_tag, ex_rs2_tag, ex_rs1_tag)  }
   }
   val ex_addr_alu = ex_base | ex_offset
   val ex_addr_mem = ex_addr_alu ^ UInt(ruleTableALUSize)
