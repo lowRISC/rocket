@@ -52,15 +52,25 @@ class TagMemCtl(implicit p: Parameters) extends CoreBundle()(p) {
 class TagCoreCtl(implicit p: Parameters) extends CoreBundle()(p) {
   val tag       = UInt(width=tgBits)   // tag to update in WB
   val op        = UInt(width=TG_WB_SZ) // operation idicator for WB
-  val xcpt      = Bool(OUTPUT)         // ALU tag check exception
-  val miss_hash = Bool(OUTPUT)         // miss in hash table
-  val miss_rule = Bool(OUTPUT)         // miss in rule table
+  val xcpt      = Bool()               // ALU tag check exception
+  val miss_hash = Bool()               // miss in hash table
+  val miss_rule = Bool()               // miss in rule table
+}
+
+// forwarding tag to core pipeline
+class TagCoreForward(implicit p: Parameters) extends CoreBundle()(p) {
+  val tag       = UInt(width=tgBits)  // the early produced tag
+  val update    = Bool()              // whether need to update tag
 }
 
 class TagRuleIO(implicit p: Parameters) extends CoreBundle()(p) {
-  val cpu_req = Decoupled(new TagRuleReq).flip
+  val cpu_req  = Decoupled(new TagRuleReq).flip
   val cpu_ctl  = Valid(new TagCoreCtl)
   val dmem_ctl = Valid(new TagMemCtl)
+
+  // forwarding network patch up
+  val exe_tag  = Valid(new TagCoreForward) // early tag forwarded to EXE
+  val mem_tag  = Valid(new TagCoreForward) // early tag forwarded to MEM
 }
 
 trait TgHashOP {
@@ -176,7 +186,7 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val wb_checkL = RegEnable(mem_checkL, mem_valid)
   val wb_checkR = RegEnable(mem_checkR, mem_valid)
 
-  // output ports
+  // control signals to WB
   io.cpu_ctl.valid          := wb_rd_update
   io.cpu_ctl.bits.tag       := wb_rd_tag
   io.cpu_ctl.bits.op        := TG_WB_NONE  // currently just default operation
@@ -184,9 +194,18 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   io.cpu_ctl.bits.miss_rule := Bool(false) // No miss for current static rule table
   io.cpu_ctl.bits.xcpt      := wb_xcpt     // precise exception caused by a non-memory instruction's tag
 
+  // control signals to data cache
   io.dmem_ctl.valid       := wb_check
   io.dmem_ctl.bits.checkL := wb_checkL
   io.dmem_ctl.bits.checkR := wb_checkR
   io.dmem_ctl.bits.op     := TG_MEM_NONE // current just default operation
+
+  // forward early tags
+  io.exe_tag.valid        := ex_valid && !ex_read_table
+  io.exe_tag.bits.tag     := ex_rd_tag
+  io.exe_tag.bits.update  := ex_hash =/= HASH_NONE
+  io.mem_tag.valid        := mem_valid && !mem_read_table
+  io.mem_tag.bits.tag     := mem_rd_tag
+  io.mem_tag.bits.update  := mem_rd_update
 
 }
