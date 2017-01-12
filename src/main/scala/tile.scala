@@ -153,11 +153,16 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
     val tagRule = Module(new TagRule)
     core.io.tgReq <> tagRule.io.cpu_req
     core.io.tgCtl <> tagRule.io.cpu_ctl
+    core.io.tgExe <> tagRule.io.exe_tag
+    core.io.tgMem <> tagRule.io.mem_tag
     dcache.io.tag <> tagRule.io.dmem_ctl
   } else {
-    core.io.tgReq.ready := Bool(false)
-    core.io.tgCtl.valid := Bool(false)
-    dcache.io.tag.valid := Bool(false)
+    core.io.tgReq.ready  := Bool(false)
+    core.io.tgCtl.update := Bool(false)
+    core.io.tgCtl.op     := TG_WB_NONE
+    core.io.tgExe.valid  := Bool(true)
+    core.io.tgMem.valid  := Bool(true)
+    dcache.io.tag.valid  := Bool(false)
   }
 
   // debug

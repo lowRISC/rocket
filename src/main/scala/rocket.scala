@@ -141,6 +141,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     // tag rule table
     val tgReq = Decoupled(new TagRuleReq)
     val tgCtl = Valid(new TagCoreCtl).flip
+    val tgExe = Valid(new TagCoreForward).flip
+    val tgMem = Valid(new TagCoreForward).flip
 
     val irq = Bool(INPUT)
     val dbgnet = Vec(2, new DiiIO)       // debug network
@@ -179,6 +181,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val mem_reg_pc              = Reg(UInt())
   val mem_reg_inst            = Reg(Bits())
   val mem_reg_wdata           = Reg(Bits())
+  val mem_reg_wtag            = Reg(Bits())
   val mem_reg_rs2             = Reg(Bits())
   val take_pc_mem             = Wire(Bool())
 
@@ -190,6 +193,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val wb_reg_pc              = Reg(UInt())
   val wb_reg_inst            = Reg(Bits())
   val wb_reg_wdata           = Reg(Bits())
+  val wb_reg_wtag            = Reg(Bits())
   val wb_reg_rs2             = Reg(Bits())
   val take_pc_wb             = Wire(Bool())
 
@@ -210,6 +214,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val id_raddr = IndexedSeq(id_raddr1, id_raddr2)
   val rf = new RegFile(31, xLen, tgBits)
   val id_rs = id_raddr.map(rf.read_data _)
+  val id_rs_tag = id_raddr.map(rf.read_tag  _)
   val ctrl_killd = Wire(Bool())
 
   val csr = Module(new CSRFile(id))
@@ -261,11 +266,20 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_waddr = ex_reg_inst(11,7)
   val mem_waddr = mem_reg_inst(11,7)
   val wb_waddr = wb_reg_inst(11,7)
-  val bypass_sources = IndexedSeq(
-    (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
-    (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
-    (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
-    (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.tagUpdate))
+  val bypass_sources =
+    if (usingTagMem) {
+      IndexedSeq(
+        (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
+        (ex_reg_valid && io.tgExe.valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
+        (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
+        (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.tagUpdate))
+    } else {
+      IndexedSeq(
+        (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
+        (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, UInt(0)),
+        (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, UInt(0)),
+        (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, UInt(0)))
+    )
   val id_bypass_src = id_raddr.map(raddr => bypass_sources.map(s => s._1 && s._2 === raddr))
 
   // execute stage
@@ -381,6 +395,9 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     mem_reg_inst := ex_reg_inst
     mem_reg_pc := ex_reg_pc
     mem_reg_wdata := alu.io.out
+    when (io.tgExe.valid && io.tgExe.bits.update) {
+      mem_reg_wtag := io.tgExe.bits.tag
+    }
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
       mem_reg_rs2 := ex_rs(1)
     }
@@ -409,6 +426,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   when (mem_reg_valid || mem_reg_replay || mem_reg_xcpt_interrupt) {
     wb_ctrl := mem_ctrl
     wb_reg_wdata := Mux(mem_ctrl.fp && mem_ctrl.wxd, io.fpu.toint_data, mem_int_wdata)
+    wb_reg_wtag  := Mux(io.tgMem.valid && io.tgMem.bits.update, io.tgMem.bits.tag, mem_reg_wtag)
     when (mem_ctrl.rocc) {
       wb_reg_rs2 := mem_reg_rs2
     }
@@ -462,7 +480,14 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                  Mux(ll_wen, ll_wdata,
                  Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
                  wb_reg_wdata)))
-  when (rf_wen) { rf.write_data(rf_waddr, rf_wdata) }
+  val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.tag, wb_reg_wtag)
+  when (rf_wen) { rf.write_data(rf_waddr, Mux(io.tgCtl.op === TG_WB_R, rf_wtag, rf_wdata)) }
+  when (rf_wen && io.tgCtl.update) {
+    rf.write_data(rf_waddr,
+      Mux(io.tgCtl.op === TG_WB_NONE, rf_wtag,     // normal
+      Mux(io.tgCtl.op === TG_WB_R,    UInt(0),     // read tag to rs1
+                                      rf_wdata)))  // write rs1 to tag
+  }
 
   // hook up control/status regfile
   csr.io.exception := wb_reg_xcpt

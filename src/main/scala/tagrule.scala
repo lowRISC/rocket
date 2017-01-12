@@ -20,9 +20,9 @@ trait TagOpConstants {
 trait TagWBConstants {
   val TG_WB_SZ      = 2
   val TG_WB_X       = BitPat("b??")
-  val TG_WB_NONE    = UInt(0, TG_EX_SZ) // default
-  val TG_WB_R       = UInt(1, TG_EX_SZ) // read tag (rd, rd_t) <= (rs1_t, 0)
-  val TG_WB_W       = UInt(2, TG_EX_SZ) // write tag (rd, rd_t) <= (rd, rs1_t)
+  val TG_WB_NONE    = UInt(0, TG_WB_SZ) // default
+  val TG_WB_R       = UInt(1, TG_WB_SZ) // read tag (rd, rd_t) <= (rs1_t, 0)
+  val TG_WB_W       = UInt(2, TG_WB_SZ) // write tag (rd, rd_t) <= (rd, rs1)
 }
 
 trait TagMEMConstants {
@@ -65,7 +65,7 @@ class TagCoreForward(implicit p: Parameters) extends CoreBundle()(p) {
 
 class TagRuleIO(implicit p: Parameters) extends CoreBundle()(p) {
   val cpu_req  = Decoupled(new TagRuleReq).flip
-  val cpu_ctl  = Valid(new TagCoreCtl)
+  val cpu_ctl  = new TagCoreCtl().asOutput
   val dmem_ctl = Valid(new TagMemCtl)
 
   // forwarding network patch up
@@ -187,12 +187,12 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val wb_checkR = RegEnable(mem_checkR, mem_valid)
 
   // control signals to WB
-  io.cpu_ctl.valid          := wb_rd_update
-  io.cpu_ctl.bits.tag       := wb_rd_tag
-  io.cpu_ctl.bits.op        := TG_WB_NONE  // currently just default operation
-  io.cpu_ctl.bits.miss_hash := Bool(false) // No miss for current static hash table
-  io.cpu_ctl.bits.miss_rule := Bool(false) // No miss for current static rule table
-  io.cpu_ctl.bits.xcpt      := wb_xcpt     // precise exception caused by a non-memory instruction's tag
+  io.cpu_ctl.update    := wb_rd_update
+  io.cpu_ctl.tag       := wb_rd_tag
+  io.cpu_ctl.op        := TG_WB_NONE  // currently just default operation
+  io.cpu_ctl.miss_hash := Bool(false) // No miss for current static hash table
+  io.cpu_ctl.miss_rule := Bool(false) // No miss for current static rule table
+  io.cpu_ctl.xcpt      := wb_xcpt     // precise exception caused by a non-memory instruction's tag
 
   // control signals to data cache
   io.dmem_ctl.valid       := wb_check
