@@ -183,6 +183,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val mem_reg_wdata           = Reg(Bits())
   val mem_reg_wtag            = Reg(Bits())
   val mem_reg_rs2             = Reg(Bits())
+  val mem_reg_rs2_tag         = Reg(Bits())
   val take_pc_mem             = Wire(Bool())
 
   val wb_reg_valid           = Reg(Bool())
@@ -272,7 +273,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
         (ex_reg_valid && io.tgExe.valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
         (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
-        (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.tagUpdate))
+        (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.dtag))
     } else {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
@@ -297,7 +298,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     A1_RS1 -> ex_rs(0)._1.toSInt,
     A1_PC -> ex_reg_pc.toSInt))
   val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq(
-    A2_RS2 -> ex_rs(1)._2.toSInt,
+    A2_RS2 -> ex_rs(1)._1.toSInt,
     A2_IMM -> ex_imm,
     A2_FOUR -> SInt(4)))
 
@@ -400,7 +401,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
       mem_reg_wtag := io.tgExe.bits.tag
     }
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
-      mem_reg_rs2 := ex_rs(1)
+      (mem_reg_rs2, mem_reg_rs2_tag) := ex_rs(1)
     }
   }
 
@@ -481,7 +482,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                  Mux(ll_wen, ll_wdata,
                  Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
                  wb_reg_wdata)))
-  val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.tag, wb_reg_wtag)
+  val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.dtag, wb_reg_wtag)
   when (rf_wen) { rf.write_data(rf_waddr, Mux(io.tgCtl.op === TG_WB_R, rf_wtag, rf_wdata)) }
   when (rf_wen && io.tgCtl.update) {
     rf.write_data(rf_waddr,
@@ -610,6 +611,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   io.dmem.req.bits.addr := encodeVirtualAddress(ex_rs(0), alu.io.adder_out)
   io.dmem.s1_kill := killm_common || mem_xcpt
   io.dmem.s1_data := Mux(mem_ctrl.fp, io.fpu.store_data, mem_reg_rs2)
+  io.dmem.s1_dtag := Mux(mem_ctrl.fp, UInt(0),           mem_reg_rs2_tag)
   io.dmem.invalidate_lr := wb_xcpt
 
   io.rocc.cmd.valid := wb_rocc_val
