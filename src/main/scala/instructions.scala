@@ -227,6 +227,7 @@ object Causes {
   val supervisor_ecall = 0x9
   val hypervisor_ecall = 0xa
   val machine_ecall = 0xb
+  val tag_check_failure = 0x10 // failed tag check (both ALU and memory)
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
     res += misaligned_fetch
@@ -241,6 +242,7 @@ object Causes {
     res += supervisor_ecall
     res += hypervisor_ecall
     res += machine_ecall
+    res += tag_check_failure
     res.toArray
   }
 }
@@ -303,7 +305,8 @@ object CSRs {
   val msinstret_deltah = 0x786
   val mcycleh = 0xf80
   val minstreth = 0xf82
-  val swtrace = 0x8ff
+  val swtrace = 0x8ff // software trace trigger
+  val tmode = 0x7f0   // mode of tag use case
   val all = {
     val res = collection.mutable.ArrayBuffer[Int]()
     res += fflags
@@ -354,6 +357,7 @@ object CSRs {
     res += mhartid
     res += mreset
     res += swtrace
+    res += tmode
     res.toArray
   }
   val all32 = {

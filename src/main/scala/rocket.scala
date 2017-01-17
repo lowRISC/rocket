@@ -352,6 +352,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   // replay inst in ex stage?
   val wb_dcache_miss = wb_ctrl.mem && !io.dmem.resp.valid
   val replay_ex_structural = ex_ctrl.mem && !io.dmem.req.ready ||
+                             io.dmem.tag_replay || // stall pipeline when there is a tagged reply in D$
                              ex_ctrl.div && !div.io.req.ready
   val replay_ex_load_use = wb_dcache_miss && ex_reg_load_use
   val replay_ex = ex_reg_valid && (replay_ex_structural || replay_ex_load_use)
@@ -362,6 +363,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val (ex_xcpt, ex_cause) = checkExceptions(List(
     (ex_reg_xcpt_interrupt || ex_reg_xcpt, ex_reg_cause),
     (ex_ctrl.fp && io.fpu.illegal_rm,      UInt(Causes.illegal_instruction))))
+  io.dmem.ex_xcpt := ex_xcpt // when core pipeline has an outstanding exception, no tagged replay in D$ is allowed
 
   // memory stage
   val mem_br_taken = mem_reg_wdata(0)
@@ -491,16 +493,19 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                                       rf_wdata)))  // write rs1 to tag
   }
 
+  // tagged memory support
+  val tag_xcpt = tgCtl.io.xcpt || io.dmem.tag_xcpt
+
   // hook up control/status regfile
-  csr.io.exception := wb_reg_xcpt
-  csr.io.cause := wb_reg_cause
+  csr.io.exception := wb_reg_xcpt || tag_xcpt
+  csr.io.cause := Mux(wb_reg_xcpt, wb_reg_cause, Causes.tag_check_failure)
   csr.io.retire := wb_valid
   csr.io.irq <> io.irq
   csr.io.prci <> io.prci
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc
-  csr.io.pc := wb_reg_pc
+  csr.io.pc := Mux(wb_reg_xcpt, wb_reg_pc, io.dmem.resp.bits.pc)
   csr.io.uarch_counters.foreach(_ := Bool(false))
   io.ptw.ptbr := csr.io.ptbr
   io.ptw.invalidate := csr.io.fatc

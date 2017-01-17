@@ -57,6 +57,7 @@ trait HasCoreMemOp extends HasCoreParameters {
 trait HasCoreData extends TagMemCtl with HasCoreParameters {
   val data = Bits(width = coreDataBits)
   val dtag = Bits(width = tgBits)
+  val pc   = Bits(width = xLen)
   require(coreDataBits == 64)
 }
 
@@ -107,6 +108,9 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val resp = Valid(new HellaCacheResp).flip
   val replay_next = Bool(INPUT)
   val xcpt = (new HellaCacheExceptions).asInput
+  val tag_xcpt = Bool(INPUT) // exception for tag check failure
+  val ex_xcpt = Bool(OUTPUT) // core id stage exception, disable tagged replay
+  val tag_replay = Bool(INPUT)   // dmem operating a rplay, stall core pipe for tag check
   val invalidate_lr = Bool(OUTPUT)
   val ordered = Bool(INPUT)
 }
@@ -224,8 +228,6 @@ class IOMSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   io.resp.bits := req
   io.resp.bits.has_data := isRead(req.cmd)
   io.resp.bits.data := loadgen.data | req_cmd_sc
-  io.resp.bits.checkL := UInt(0)
-  io.resp.bits.checkR := UInt(0)
   io.resp.bits.dtag := UInt(0)
   io.resp.bits.store_data := req.data
   io.resp.bits.replay := Bool(true)
@@ -835,6 +837,13 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val s1_write = isWrite(s1_req.cmd)
   val s1_readwrite = s1_read || s1_write || isPrefetch(s1_req.cmd)
 
+  // tag replay check
+  // tagged replay happens when no exception in core pipeline
+  // tagged replay needs to stall core pipeline
+  val tag_replay = mshrs.io.replay.bits.checkL =/= UInt(0) || mshrs.io.replay.bits.checkL =/= UInt(0)
+  val replay_enable = !tag_replay || !io.cpu.ex_xcpt
+  io.cpu.tag_replay = mshrs.io.replay.valid && readArb.io.in(1).ready && tag_replay
+
   val dtlb = Module(new TLB)
   io.ptw <> dtlb.io.ptw
   dtlb.io.req.valid := s1_valid_masked && s1_readwrite
@@ -856,7 +865,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     s1_req.addr := Cat(prober.io.meta_read.bits.tag, prober.io.meta_read.bits.idx) << blockOffBits
     s1_req.phys := Bool(true)
   }
-  when (mshrs.io.replay.valid) {
+  when (mshrs.io.replay.valid && replay_enable) {
     s1_req := mshrs.io.replay.bits
   }
   when (s2_recycle) {
@@ -870,8 +879,8 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     s2_req.addr := s1_addr
     when (s1_write) {
       s2_req.data := Mux(s1_replay, mshrs.io.replay.bits.data, io.cpu.s1_data)
-      s2_req.dtag := Mux(s1_replay, mshrs.io.replay.bits.dtag, io.cpu.s1_dtag)
     }
+    s2_req.dtag := Mux(s1_replay, mshrs.io.replay.bits.dtag, io.cpu.s1_dtag)
     when (s1_recycled) { s2_req.data := s1_req.data }
     s2_req.tag := s1_req.tag
     s2_req.cmd := s1_req.cmd
@@ -880,6 +889,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
         s2_req.checkL := mshrs.io.replay.bits.checkL
         s2_req.checkR := mshrs.io.replay.bits.checkR
         s2_req.op     := mshrs.io.replay.bits.op
+        s2_req.pc     := mshrs.io.replay.bits.pc
       }
     }
   }
@@ -1025,8 +1035,6 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   mshrs.io.req.bits.tag_match := s2_tag_match
   mshrs.io.req.bits.old_meta := Mux(s2_tag_match, L1Metadata(s2_repl_meta.tag, s2_hit_state), s2_repl_meta)
   mshrs.io.req.bits.way_en := Mux(s2_tag_match, s2_tag_match_way, s2_replaced_way_en)
-  mshrs.io.req.bits.data := s2_req.data
-  mshrs.io.req.bits.dtag := s2_req.dtag
   if (usingTagMem) {
     mshrs.io.req.bits.checkL := Mux(io.tag.valid, io.tag.bits.checkL, UInt(0))
     mshrs.io.req.bits.checkR := Mux(io.tag.valid, io.tag.bits.checkR, UInt(0))
@@ -1036,11 +1044,11 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   io.mem.acquire <> mshrs.io.mem_req
 
   // replays
-  readArb.io.in(1).valid := mshrs.io.replay.valid
+  readArb.io.in(1).valid := mshrs.io.replay.valid && replay_enable
   readArb.io.in(1).bits := mshrs.io.replay.bits
   readArb.io.in(1).bits.way_en := ~UInt(0, nWays)
   mshrs.io.replay.ready := readArb.io.in(1).ready
-  s1_replay := mshrs.io.replay.valid && readArb.io.in(1).ready
+  s1_replay := mshrs.io.replay.valid && readArb.io.in(1).ready && replay_enable
   metaReadArb.io.in(1) <> mshrs.io.meta_read
   metaWriteArb.io.in(0) <> mshrs.io.meta_write
 
@@ -1131,6 +1139,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   s2_tag_check := if (usingTagMem) (s2_dtag_word & s2_tag_checkL) === s2_tag_checkR
                   else Bool(true)
   s2_wtag := s2_dtag_word // ToDo, inplace atomic operation
+  io.cpu.tag_xcpt := (s2_valid_masked && s2_hit || s2_replay) && !s2_tag_check
 
   // nack it like it's hot
   val s1_nack = dtlb.io.req.valid && dtlb.io.resp.miss ||

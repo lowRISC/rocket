@@ -180,7 +180,7 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
 
   // writeback stage
   val wb_rd_update = Reg(next = mem_valid && mem_rd_update)
-  val wb_xcpt = RegNext(mem_alu_rdata(0), mem_valid && mem_read_table && mem_alu_mem)
+  val wb_xcpt = Reg(next = mem_alu_rdata(0) && mem_valid && mem_read_table && mem_alu_mem)
   val wb_rd_tag = RegNext(mem_rd_tag, mem_valid && mem_rd_update)
   val wb_check = Reg(next = mem_valid) // always issue check, if not needed, use HASH_ZERO
   val wb_checkL = RegEnable(mem_checkL, mem_valid)

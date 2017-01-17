@@ -108,6 +108,7 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle {
   val interrupt = Bool(OUTPUT)
   val interrupt_cause = UInt(OUTPUT, xLen)
   val irq = Bool(INPUT)
+  val tmode = UInt(OUTPUT, xLen) // tag use case
 }
 
 class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
@@ -170,6 +171,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_instret = WideCounter(64, io.retire)
   val reg_cycle: UInt = if (enableCommitLog) { reg_instret } else { WideCounter(64) }
 
+  // tag use case
+  val reg_tmode = Reg(init=UInt(0, xLen))
+
   val mip = Wire(init=reg_mip)
   mip.irq := io.irq
   mip.rocc := io.rocc.interrupt
@@ -215,7 +219,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     CSRs.mbadaddr -> reg_mbadaddr.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
     CSRs.mhartid -> UInt(id),
-    CSRs.swtrace -> UInt(0))
+    CSRs.swtrace -> UInt(0),
+    CSRs.tmode -> reg_tmode,
+  )
 
   if (usingFPU) {
     read_mapping += CSRs.fflags -> reg_fflags
@@ -456,6 +462,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.sbadaddr)) { reg_sbadaddr := wdata(vaddrBitsExtended-1,0) }
       when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata & delegable_interrupts }
       when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata & delegable_exceptions }
+    }
+    if (usingTagMem) {
+      when (decoded_addr(CSRs.tmode))    { reg_tmode := wdata }
     }
   }
 
