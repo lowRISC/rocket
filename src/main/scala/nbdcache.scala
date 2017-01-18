@@ -54,10 +54,11 @@ trait HasCoreMemOp extends HasCoreParameters {
   val typ  = Bits(width = MT_SZ)
 }
 
-trait HasCoreData extends TagMemCtl with HasCoreParameters {
-  val data = Bits(width = coreDataBits)
-  val dtag = Bits(width = tgBits)
-  val pc   = Bits(width = xLen)
+trait HasCoreData extends HasCoreParameters {
+  val data     = Bits(width = coreDataBits)
+  val dtag     = Bits(width = tgBits)
+  val pc       = Bits(width = xLen)
+  val tag_ctrl = new TagMemCtl
   require(coreDataBits == 64)
 }
 
@@ -123,7 +124,7 @@ class L1DataReadReq(implicit p: Parameters) extends L1HellaCacheBundle()(p) {
 class L1DataWriteReq(implicit p: Parameters) extends L1DataReadReq()(p) {
   val wmask  = Bits(width = rowWords)
   val data   = Bits(width = encRowBits)
-  val tag    = Bits(width = rowTagBits)
+  val dtag   = Bits(width = rowTagBits)
 }
 
 class L1RefillReq(implicit p: Parameters) extends L1DataReadReq()(p)
@@ -640,10 +641,10 @@ class WritebackUnit(implicit p: Parameters) extends L1HellaCacheModule()(p) {
                 else UInt(1))
     }
     io.release.bits.data := Cat(io.data_resp, data_buf)
-    io.release.bits.tag := Cat(io.tag_resp, dtag_buf)
+    io.release.bits.tag  := Cat(io.dtag_resp, dtag_buf)
   } else {
     io.release.bits.data := io.data_resp
-    io.release.bits.tag := io.tag_resp
+    io.release.bits.tag  := io.dtag_resp
   }
 }
 
@@ -760,40 +761,40 @@ class DataArray(implicit p: Parameters) extends L1HellaCacheModule()(p) {
       val r_raddr = RegEnable(io.read.bits.addr, io.read.valid)
       for (p <- 0 until rowWords) {
         val data_array = SeqMem(nSets*refillCycles, Vec(rowWords, Bits(width=encDataBits)))
-        val tag_array = SeqMem(nSets*refillCycles, Vec(rowWords, Bits(width=rowTagBits)))
+        val dtag_array = SeqMem(nSets*refillCycles, Vec(rowWords, Bits(width=rowTagBits)))
         when (wway_en.orR && io.write.valid && io.write.bits.wmask(p)) {
           val data = Vec.fill(rowWords)(io.write.bits.data(encDataBits*(p+1)-1,encDataBits*p))
-          val tag = Vec.fill(rowWords)(io.write.bits.tag(tgBits*(p+1)-1,tgBits*p))
+          val dtag = Vec.fill(rowWords)(io.write.bits.dtag(tgBits*(p+1)-1,     tgBits*p))
           data_array.write(waddr, data, wway_en.toBools)
-          tag_array.write(waddr, tag, wway_en.toBools)
+          dtag_array.write(waddr, dtag, wway_en.toBools)
         }
         resp_data(p) := data_array.read(raddr, rway_en.orR && io.read.valid).toBits
-        resp_dtag(p) := tag_array.read(raddr, rway_en.orR && io.read.valid).toBits
+        resp_dtag(p) := dtag_array.read(raddr, rway_en.orR && io.read.valid).toBits
       }
       for (dw <- 0 until rowWords) {
         val r_data = Vec(resp_data.map(_(encDataBits*(dw+1)-1,encDataBits*dw)))
-        val r_tag = Vec(resp_tag.map(_(tgBits*(dw+1)-1,tgBits*dw)))
+        val r_dtag = Vec(resp_dtag.map(_(tgBits*(dw+1)-1,     tgBits*dw)))
         if (rowWords == 1) {
           io.resp_data(w+dw) := r_data.toBits
-          io.resp_dtag(w+dw) := r_tag.toBits
+          io.resp_dtag(w+dw) := r_dtag.toBits
         } else {
           io.resp_data(w+dw) := Vec(r_data(r_raddr(rowOffBits-1,wordOffBits)), r_data.tail:_*).toBits
-          io.resp_dtag(w+dw) := Vec(r_tag(r_raddr(rowOffBits-1,wordOffBits)), r_tag.tail:_*).toBits
+          io.resp_dtag(w+dw) := Vec(r_dtag(r_raddr(rowOffBits-1,wordOffBits)), r_dtag.tail:_*).toBits
         }
       }
     }
   } else {
     for (w <- 0 until nWays) {
       val data_array = SeqMem(nSets*refillCycles, Vec(rowWords, Bits(width=encDataBits)))
-      val tag_array = SeqMem(nSets*refillCycles, Vec(rowWords, Bits(width=rowTagBits)))
+      val dtag_array = SeqMem(nSets*refillCycles, Vec(rowWords, Bits(width=rowTagBits)))
       when (io.write.bits.way_en(w) && io.write.valid) {
         val data = Vec.tabulate(rowWords)(i => io.write.bits.data(encDataBits*(i+1)-1,encDataBits*i))
-        val tag = Vec.tabulate(rowWords)(i => io.write.bits.tag(rowTagBits*(i+1)-1,rowTagBits*i))
+        val dtag = Vec.tabulate(rowWords)(i => io.write.bits.dtag(rowTagBits*(i+1)-1, rowTagBits*i))
         data_array.write(waddr, data, io.write.bits.wmask.toBools)
-        tag_array.write(waddr, tag, io.write.bits.wmask.toBools)
+        dtag_array.write(waddr, dtag, io.write.bits.wmask.toBools)
       }
       io.resp_data(w) := data_array.read(raddr, io.read.bits.way_en(w) && io.read.valid).toBits
-      io.resp_dtag(w) := tag_array.read(raddr, io.read.bits.way_en(w) && io.read.valid).toBits
+      io.resp_dtag(w) := dtag_array.read(raddr, io.read.bits.way_en(w) && io.read.valid).toBits
     }
   }
 
@@ -840,9 +841,8 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   // tag replay check
   // tagged replay happens when no exception in core pipeline
   // tagged replay needs to stall core pipeline
-  val tag_replay = mshrs.io.replay.bits.checkL =/= UInt(0) || mshrs.io.replay.bits.checkL =/= UInt(0)
+  val tag_replay = mshrs.io.replay.bits.tag_ctrl.checkL =/= UInt(0) || mshrs.io.replay.bits.tag_ctrl.checkL =/= UInt(0)
   val replay_enable = !tag_replay || !io.cpu.ex_xcpt
-  io.cpu.tag_replay = mshrs.io.replay.valid && readArb.io.in(1).ready && tag_replay
 
   val dtlb = Module(new TLB)
   io.ptw <> dtlb.io.ptw
@@ -886,10 +886,8 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     s2_req.cmd := s1_req.cmd
     if(usingTagMem) {
       when(s1_replay) {
-        s2_req.checkL := mshrs.io.replay.bits.checkL
-        s2_req.checkR := mshrs.io.replay.bits.checkR
-        s2_req.op     := mshrs.io.replay.bits.op
-        s2_req.pc     := mshrs.io.replay.bits.pc
+        s2_req.tag_ctrl := mshrs.io.replay.bits.tag_ctrl
+        s2_req.pc       := mshrs.io.replay.bits.pc
       }
     }
   }
@@ -983,7 +981,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
       val en = en1 && ((Bool(i == 0) || !Bool(doNarrowRead)) || s1_writeback)
       when (en) {
         regs(i) := data.io.resp_data(w) >> encDataBits*i
-        tags(i) := data.io.resp_tag(w) >> tgBits*i
+        tags(i) := data.io.resp_dtag(w) >> tgBits*i
       }
     }
     s2_data(w) := regs.toBits
@@ -999,7 +997,6 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val s2_data_correctable = Vec(s2_data_decoded.map(_.correctable)).toBits()(s2_word_idx)
 
   // tag related checking and update signals
-  val s2_tag_check = Wire(Bool())        // whether pass the memory tag check
   val s2_wtag = Wire(UInt(width=tgBits)) // the tag to be written
 
   // store/amo hits
@@ -1019,7 +1016,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val rowWMask = UInt(1) << (if(rowOffBits > offsetlsb) rowIdx else UInt(0))
   writeArb.io.in(0).bits.wmask := rowWMask
   writeArb.io.in(0).bits.data := Fill(rowWords, s3_req.data)
-  writeArb.io.in(0).bits.tag := Fill(rowWords, s3_req.dtag)
+  writeArb.io.in(0).bits.dtag := Fill(rowWords, s3_req.dtag)
   writeArb.io.in(0).valid := s3_valid
   writeArb.io.in(0).bits.way_en :=  s3_way
 
@@ -1036,9 +1033,9 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   mshrs.io.req.bits.old_meta := Mux(s2_tag_match, L1Metadata(s2_repl_meta.tag, s2_hit_state), s2_repl_meta)
   mshrs.io.req.bits.way_en := Mux(s2_tag_match, s2_tag_match_way, s2_replaced_way_en)
   if (usingTagMem) {
-    mshrs.io.req.bits.checkL := Mux(io.tag.valid, io.tag.bits.checkL, UInt(0))
-    mshrs.io.req.bits.checkR := Mux(io.tag.valid, io.tag.bits.checkR, UInt(0))
-    mshrs.io.req.bits.op     := Mux(io.tag.valid, io.tag.bits.op,     TG_MEM_NONE)
+    mshrs.io.req.bits.tag_ctrl.checkL := Mux(io.tag.valid, io.tag.bits.checkL, UInt(0))
+    mshrs.io.req.bits.tag_ctrl.checkR := Mux(io.tag.valid, io.tag.bits.checkR, UInt(0))
+    mshrs.io.req.bits.tag_ctrl.op     := Mux(io.tag.valid, io.tag.bits.op,     TG_MEM_NONE)
   }
   when (mshrs.io.req.fire()) { replacer.miss }
   io.mem.acquire <> mshrs.io.mem_req
@@ -1080,7 +1077,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   writeArb.io.in(1).bits.way_en := mshrs.io.refill.way_en
   writeArb.io.in(1).bits.wmask := ~UInt(0, rowWords)
   writeArb.io.in(1).bits.data := narrow_grant.bits.data(encRowBits-1,0)
-  writeArb.io.in(1).bits.tag := narrow_grant.bits.tag
+  writeArb.io.in(1).bits.dtag := narrow_grant.bits.tag
   data.io.read <> readArb.io.out
   readArb.io.out.ready := !narrow_grant.valid || narrow_grant.ready // insert bubble if refill gets blocked
   io.mem.finish <> mshrs.io.mem_finish
@@ -1131,15 +1128,15 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   amoalu.io.rhs := s2_req.data
 
   // tag related operations in D$
-  val (s2_tag_op, s2_tag_checkL, s2_tag_checkR) =
-    Mux(s2_replay,    (s2_req.op,      s2_req.checkL,      s2_req.checkR),
-    Mux(io.tag.valid, (io.tag.bits.op, io.tag.bits.checkL, io.tag.bits.checkR),
-                      (TG_MEM_NONE,    UInt(0),            UInt(0))))
+  val s2_tag_op     = Mux(s2_replay, s2_req.tag_ctrl.op,     Mux(io.tag.valid, io.tag.bits.op,     UInt(TG_MEM_NONE)))
+  val s2_tag_checkL = Mux(s2_replay, s2_req.tag_ctrl.checkL, Mux(io.tag.valid, io.tag.bits.checkL, UInt(0)))
+  val s2_tag_checkR = Mux(s2_replay, s2_req.tag_ctrl.checkR, Mux(io.tag.valid, io.tag.bits.checkR, UInt(0)))
 
-  s2_tag_check := if (usingTagMem) (s2_dtag_word & s2_tag_checkL) === s2_tag_checkR
-                  else Bool(true)
+  val s2_tag_check = if (usingTagMem) (s2_dtag_word & s2_tag_checkL) === s2_tag_checkR
+                     else Bool(true)
   s2_wtag := s2_dtag_word // ToDo, inplace atomic operation
   io.cpu.tag_xcpt := (s2_valid_masked && s2_hit || s2_replay) && !s2_tag_check
+  io.cpu.tag_replay := mshrs.io.replay.valid && readArb.io.in(1).ready && tag_replay
 
   // nack it like it's hot
   val s1_nack = dtlb.io.req.valid && dtlb.io.resp.miss ||

@@ -140,7 +140,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
     // tag rule table
     val tgReq = Decoupled(new TagRuleReq)
-    val tgCtl = Valid(new TagCoreCtl).flip
+    val tgCtl = new TagCoreCtl().asInput
     val tgExe = Valid(new TagCoreForward).flip
     val tgMem = Valid(new TagCoreForward).flip
 
@@ -249,7 +249,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     (io.imem.resp.bits.xcpt_if, UInt(Causes.fault_fetch)),
     (id_illegal_insn,           UInt(Causes.illegal_instruction))))
 
-  if(p(usingTagMem)) {
+  if(usingTagMem) {
     // send tag request to tag rule table
     io.tgReq.valid := !ctrl_killd
     io.tgReq.bits.tg_op := id_ctrl.tg_op
@@ -280,28 +280,33 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
         (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, UInt(0)),
         (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, UInt(0)),
         (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, UInt(0)))
-    )
+    }
   val id_bypass_src = id_raddr.map(raddr => bypass_sources.map(s => s._1 && s._2 === raddr))
 
   // execute stage
-  val bypass_mux = Vec(bypass_sources.map(b => (b._3, b._4)))
+  val bypass_mux_reg = Vec(bypass_sources.map(_._3))
+  val bypass_mux_tag = Vec(bypass_sources.map(_._4))
   val ex_reg_rs_bypass = Reg(Vec(id_raddr.size, Bool()))
   val ex_reg_rs_lsb = Reg(Vec(id_raddr.size, UInt()))
   val ex_reg_rs_msb = Reg(Vec(id_raddr.size, UInt()))
+  val ex_reg_rs_tag = Reg(Vec(id_raddr.size, UInt()))
   val ex_rs = for (i <- 0 until id_raddr.size)
-    yield Mux(ex_reg_rs_bypass(i),
-      bypass_mux(ex_reg_rs_lsb(i)),
-      (Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)), ex_reg_rs_tag(i))
-    )
+    yield Mux(ex_reg_rs_bypass(i), bypass_mux_reg(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
+  val ex_rs_tag = for (i <- 0 until id_raddr.size)
+    yield Mux(ex_reg_rs_bypass(i), bypass_mux_tag(ex_reg_rs_lsb(i)), ex_reg_rs_tag(i))
   val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
   val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
-    A1_RS1 -> ex_rs(0)._1.toSInt,
+    A1_RS1 -> ex_rs(0).toSInt,
     A1_PC -> ex_reg_pc.toSInt))
   val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq(
-    A2_RS2 -> ex_rs(1)._1.toSInt,
+    A2_RS2 -> ex_rs(1).toSInt,
     A2_IMM -> ex_imm,
     A2_FOUR -> SInt(4)))
 
+  if (usingTagMem) {
+    io.tgReq.bits.rs1_tag := Mux(ex_ctrl.sel_alu1 === A1_RS1, ex_rs_tag(0), UInt(0))
+    io.tgReq.bits.rs2_tag := Mux(ex_ctrl.sel_alu2 === A2_RS2, ex_rs_tag(1), UInt(0))
+  }
 
   val alu = Module(new ALU)
   alu.io.dw := ex_ctrl.alu_dw
@@ -341,6 +346,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
       when (id_ren(i) && !do_bypass) {
         ex_reg_rs_lsb(i) := id_rs(i)(bypass_src.getWidth-1,0)
         ex_reg_rs_msb(i) := id_rs(i) >> bypass_src.getWidth
+        ex_reg_rs_tag(i) := id_rs_tag(i)
       }
     }
   }
@@ -371,7 +377,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     Mux(mem_ctrl.branch && mem_br_taken, ImmGen(IMM_SB, mem_reg_inst),
     Mux(mem_ctrl.jal, ImmGen(IMM_UJ, mem_reg_inst), SInt(4)))
   val mem_int_wdata = Mux(mem_ctrl.jalr, mem_br_target, mem_reg_wdata.toSInt).toUInt
-  val mem_int_wtag  = Mux(mem_ctrl.jalr, UInt(0), mem_reg_wdtag)
+  val mem_int_wtag  = Mux(mem_ctrl.jalr, UInt(0), mem_reg_wtag)
   val mem_npc = (Mux(mem_ctrl.jalr, encodeVirtualAddress(mem_reg_wdata, mem_reg_wdata).toSInt, mem_br_target) & SInt(-2)).toUInt
   val mem_wrong_npc = mem_npc =/= ex_reg_pc || !ex_reg_valid
   val mem_npc_misaligned = mem_npc(1)
@@ -403,7 +409,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
       mem_reg_wtag := io.tgExe.bits.tag
     }
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
-      (mem_reg_rs2, mem_reg_rs2_tag) := ex_rs(1)
+      mem_reg_rs2     := ex_rs(1)
+      mem_reg_rs2_tag := ex_rs_tag(1)
     }
   }
 
@@ -494,7 +501,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   }
 
   // tagged memory support
-  val tag_xcpt = tgCtl.io.xcpt || io.dmem.tag_xcpt
+  val tag_xcpt = io.tgCtl.xcpt || io.dmem.tag_xcpt
 
   // hook up control/status regfile
   csr.io.exception := wb_reg_xcpt || tag_xcpt

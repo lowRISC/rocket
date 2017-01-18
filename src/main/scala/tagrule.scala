@@ -50,6 +50,7 @@ class TagMemCtl(implicit p: Parameters) extends CoreBundle()(p) {
 
 // control signals to the core pipeline
 class TagCoreCtl(implicit p: Parameters) extends CoreBundle()(p) {
+  val update    = Bool()               // whether to update tag in WB
   val tag       = UInt(width=tgBits)   // tag to update in WB
   val op        = UInt(width=TG_WB_SZ) // operation idicator for WB
   val xcpt      = Bool()               // ALU tag check exception
@@ -102,7 +103,7 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   val io = new TagRuleIO
 
   // the address hash table
-  val hashTable = SeqMem(hashTableSize, Vec(1, UInt(width=hashTableEntryBits)))
+  val hashTable = SeqMem(hashTableSize, UInt(width=hashTableEntryBits))
   val hashTableContent = Vec(
       Cat(UInt(0, ruleTableAddrBits), HASH_ZERO),       // TG_OP_NONE: reset
       Cat(UInt(0, ruleTableAddrBits), HASH_RS1),        // TG_OP_ALU: rd_t <= rs1_t
@@ -110,8 +111,8 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
     )
 
   // the tag rule table
-  val ruleTableALU = SeqMem(ruleTableALUSize, Vec(1, UInt(width=ruleTableALUEntryBits)))
-  val ruleTableMem = SeqMem(ruleTableMemSize, Vec(1, UInt(width=ruleTableMemEntryBits)))
+  val ruleTableALU = SeqMem(ruleTableALUSize, UInt(width=ruleTableALUEntryBits))
+  val ruleTableMem = SeqMem(ruleTableMemSize, UInt(width=ruleTableMemEntryBits))
 
   // reset all tables
   val rstCycles = Seq(hashTableSize, ruleTableALUSize, ruleTableMemSize).reduce(_ max _)
@@ -123,15 +124,15 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   when(rstCnt < UInt(hashTableSize)) {
     val rstVal = Mux(rstCnt < UInt(hashTableContent.size),
                      hashTableContent(rstCnt), UInt(0))
-    hashTable.write(rstCnt, Vec.fill(1)(rstVal), UInt(1))
+    hashTable.write(rstCnt, rstVal)
   }
 
   when(rstCnt < UInt(ruleTableALUSize)) {
-    ruleTableALU.write(rstCnt, Vec.fill(1)(UInt(0)), UInt(1))
+    ruleTableALU.write(rstCnt, UInt(0))
   }
 
   when(rstCnt < UInt(ruleTableMemSize)) {
-    ruleTableMem.write(rstCnt, Vec.fill(1)(UInt(0)), UInt(1))
+    ruleTableMem.write(rstCnt, UInt(0))
   }
 
   // decoder stage
@@ -181,7 +182,7 @@ class TagRule(implicit p: Parameters) extends CoreModule()(p) with TgHashOP {
   // writeback stage
   val wb_rd_update = Reg(next = mem_valid && mem_rd_update)
   val wb_xcpt = Reg(next = mem_alu_rdata(0) && mem_valid && mem_read_table && mem_alu_mem)
-  val wb_rd_tag = RegNext(mem_rd_tag, mem_valid && mem_rd_update)
+  val wb_rd_tag = RegEnable(mem_rd_tag, mem_valid && mem_rd_update)
   val wb_check = Reg(next = mem_valid) // always issue check, if not needed, use HASH_ZERO
   val wb_checkL = RegEnable(mem_checkL, mem_valid)
   val wb_checkR = RegEnable(mem_checkR, mem_valid)

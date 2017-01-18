@@ -220,7 +220,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     CSRs.mcause -> reg_mcause,
     CSRs.mhartid -> UInt(id),
     CSRs.swtrace -> UInt(0),
-    CSRs.tmode -> reg_tmode,
+    CSRs.tmode -> reg_tmode
   )
 
   if (usingFPU) {
