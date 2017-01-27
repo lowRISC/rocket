@@ -288,6 +288,12 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     A2_IMM -> ex_imm,
     A2_FOUR -> SInt(4)))
 
+  val ex_op1_tag = Mux(ex_ctrl.sel_alu1 === A1_RS1, ex_rs_tag(0), UInt(0))
+  val ex_op2_tag = Mux(ex_ctrl.sel_alu2 === A2_RS2, ex_rs_tag(1), UInt(0))
+  val ex_alu_tag =
+    if (usingTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tagCtrl.maskALU
+    else             UInt(0)
+
   val alu = Module(new ALU)
   alu.io.dw := ex_ctrl.alu_dw
   alu.io.fn := ex_ctrl.alu_fn
@@ -385,9 +391,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     mem_reg_inst := ex_reg_inst
     mem_reg_pc := ex_reg_pc
     mem_reg_wdata := alu.io.out
-    when (io.tgExe.valid && io.tgExe.bits.update) {
-      mem_reg_wtag := io.tgExe.bits.tag
-    }
+    mem_reg_wtag := ex_alu_tag
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
       mem_reg_rs2     := ex_rs(1)
       mem_reg_rs2_tag := ex_rs_tag(1)
