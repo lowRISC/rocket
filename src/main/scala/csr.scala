@@ -170,6 +170,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_instret = WideCounter(64, io.retire)
   val reg_cycle: UInt = if (enableCommitLog) { reg_instret } else { WideCounter(64) }
 
+  val reg_tagctrl = Reg(Bits(width = xLen))
+
   val mip = Wire(init=reg_mip)
   mip.irq := io.irq
   mip.rocc := io.rocc.interrupt
@@ -250,6 +252,10 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_mapping += CSRs.mstime_delta -> UInt(0)
     read_mapping += CSRs.mscycle_delta -> UInt(0)
     read_mapping += CSRs.msinstret_delta -> UInt(0)
+  }
+
+  if (usingTagMem) {
+    read_mapping += CSRs.tagctrl -> reg_tagctrl
   }
 
   if (xLen == 32) {
@@ -457,6 +463,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata & delegable_interrupts }
       when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata & delegable_exceptions }
     }
+    if (usingTagMem) {
+      when (decoded_addr(CSRs.tagctrl))  { reg_tagctrl := wdata }
+    }
   }
 
   reg_mip := io.prci.interrupts
@@ -464,4 +473,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csr.waddr := io.rw.addr
   io.rocc.csr.wdata := wdata
   io.rocc.csr.wen := wen
+
+  if (usingTagMem) {
+    io.tagCtrl := reg_tagctrl
+  }
 }
