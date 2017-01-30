@@ -104,6 +104,7 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val resp = Valid(new HellaCacheResp).flip
   val replay_next = Bool(INPUT)
   val xcpt = (new HellaCacheExceptions).asInput
+  val tag_ctrl = new TagCtrlSig().asOutput
   val tag_xcpt = Bool(INPUT) // exception for tag check failure
   val ex_xcpt = Bool(OUTPUT) // core id stage exception, disable tagged replay
   val tag_replay = Bool(INPUT)   // dmem operating a rplay, stall core pipe for tag check
@@ -832,13 +833,13 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val s1_write = isWrite(s1_req.cmd)
   val s1_readwrite = s1_read || s1_write || isPrefetch(s1_req.cmd)
 
-*****************************
   // tag replay check
   // tagged replay happens when no exception in core pipeline
   // tagged replay needs to stall core pipeline
-  val tag_replay = mshrs.io.replay.bits.tag_ctrl.checkL =/= UInt(0) || mshrs.io.replay.bits.tag_ctrl.checkL =/= UInt(0)
+  val tag_replay =
+    (io.cpu.tag_ctrl.maskLoadChck =/= UInt(0) && isRead(mshrs.io.replay.bits.cmd)) ||
+    (io.cpu.tag_ctrl.maskStoreChck =/= UInt(0) && isWrite(mshrs.io.replay.bits.cmd))
   val replay_enable = !tag_replay || !io.cpu.ex_xcpt
-*****************************
 
   val dtlb = Module(new TLB)
   io.ptw <> dtlb.io.ptw
@@ -994,6 +995,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
   // tag related checking and update signals
   val s2_wtag = Wire(UInt(width=tgBits)) // the tag to be written
+  s2_wtag := s2_req.dtag & io.cpu.tag_ctrl.maskStoreProp
 
   // store/amo hits
   s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd)
@@ -1119,11 +1121,13 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   amoalu.io.lhs := s2_data_word
   amoalu.io.rhs := s2_req.data
 
-**************************
   // tag related operations in D$
+  val s2_tag_check =
+    ((io.cpu.tag_ctrl.maskLoadChck & s2_dtag_word) =/= UInt(0) && isRead(mshrs.io.replay.bits.cmd)) ||
+    ((io.cpu.tag_ctrl.maskStoreChck & s2_dtag_word) =/= UInt(0) && isWrite(mshrs.io.replay.bits.cmd))
+
   io.cpu.tag_xcpt := (s2_valid_masked && s2_hit || s2_replay) && !s2_tag_check
   io.cpu.tag_replay := mshrs.io.replay.valid && readArb.io.in(1).ready && tag_replay
-**************************
 
   // nack it like it's hot
   val s1_nack = dtlb.io.req.valid && dtlb.io.resp.miss ||
@@ -1152,7 +1156,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   cache_resp.bits := s2_req
   cache_resp.bits.has_data := isRead(s2_req.cmd)
   cache_resp.bits.data := loadgen.data | s2_sc_fail
-  cache_resp.bits.dtag := s2_dtag_word
+  cache_resp.bits.dtag := s2_dtag_word & io.cpu.tag_ctrl.maskLoadProp
   cache_resp.bits.store_data := s2_req.data
   cache_resp.bits.replay := s2_replay
 

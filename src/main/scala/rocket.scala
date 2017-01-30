@@ -606,6 +606,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   io.dmem.s1_data := Mux(mem_ctrl.fp, io.fpu.store_data, mem_reg_rs2)
   io.dmem.s1_dtag := Mux(mem_ctrl.fp, UInt(0),           mem_reg_rs2_tag)
   io.dmem.invalidate_lr := wb_xcpt
+  io.dmem.tag_ctrl := csr.io.tag_ctrl
 
   io.rocc.cmd.valid := wb_rocc_val
   io.rocc.exception := wb_xcpt && csr.io.status.xs.orR
