@@ -8,10 +8,12 @@ import scala.math.max
 
 class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
   val pc = UInt(width = vaddrBitsExtended)
+  val pc_tag = UInt(width = tgBits)
 }
 
 class FrontendResp(implicit p: Parameters) extends CoreBundle()(p) {
   val pc = UInt(width = vaddrBitsExtended)  // ID stage PC
+  val pc_tag = UInt(width = tgBits)
   val data = Vec(fetchWidth, Bits(width = coreInstBits))
   val tag = Vec(fetchWidth, Bits(width = tgInstBits))
   val mask = Bits(width = fetchWidth)
@@ -42,9 +44,11 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
 
   val s1_pc_ = Reg(UInt(width=vaddrBitsExtended))
   val s1_pc = ~(~s1_pc_ | (coreInstBytes-1)) // discard PC LSBS (this propagates down the pipeline)
+  val s1_pc_tag = Reg(init=UInt(0, tgBits))
   val s1_same_block = Reg(Bool())
   val s2_valid = Reg(init=Bool(true))
   val s2_pc = Reg(init=UInt(p(ResetVector)))
+  val s2_pc_tag = Reg(init=UInt(0, tgBits))
   val s2_btb_resp_valid = Reg(init=Bool(false))
   val s2_btb_resp_bits = Reg(new BTBResp)
   val s2_xcpt_if = Reg(init=Bool(false))
@@ -59,21 +63,25 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
   val predicted_npc = Wire(init = ntpc)
   val icmiss = s2_valid && !s2_resp_valid
   val npc = Mux(icmiss, s2_pc, predicted_npc).toUInt
+  val npc_tag = Mux(icmiss, s2_pc_tag, UInt(0))
   val s0_same_block = Wire(init = !icmiss && !io.cpu.req.valid && ((ntpc & rowBytes) === (s1_pc & rowBytes)))
 
   val stall = io.cpu.resp.valid && !io.cpu.resp.ready
   when (!stall) {
     s1_same_block := s0_same_block && !tlb.io.resp.miss
     s1_pc_ := npc
+    s1_pc_tag := npc_tag
     s2_valid := !icmiss
     when (!icmiss) {
       s2_pc := s1_pc
+      s2_pc_tag := s1_pc_tag
       s2_xcpt_if := tlb.io.resp.xcpt_if
     }
   }
   when (io.cpu.req.valid) {
     s1_same_block := Bool(false)
     s1_pc_ := io.cpu.req.bits.pc
+    s1_pc_tag := io.cpu.req.bits.pc_tag
     s2_valid := Bool(false)
   }
 
@@ -113,6 +121,7 @@ class Frontend(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePa
 
   io.cpu.resp.valid := s2_valid && (s2_xcpt_if || s2_resp_valid)
   io.cpu.resp.bits.pc := s2_pc
+  io.cpu.resp.bits.pc_tag := s2_pc_tag
   io.cpu.npc := Mux(io.cpu.req.valid, io.cpu.req.bits.pc, npc)
 
   // if the ways are buffered, we don't need to buffer again
