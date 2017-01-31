@@ -96,7 +96,9 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle {
     val addr = UInt(INPUT, CSR.ADDRSZ)
     val cmd = Bits(INPUT, CSR.SZ)
     val rdata = Bits(OUTPUT, xLen)
+    val rtag  = Bits(OUTPUT, tgBits)
     val wdata = Bits(INPUT, xLen)
+    val wtag  = Bits(INPUT, tgBits)
   }
 
   val csr_stall = Bool(OUTPUT)
@@ -107,12 +109,14 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle {
   val status = new MStatus().asOutput
   val ptbr = UInt(OUTPUT, paddrBits)
   val evec = UInt(OUTPUT, vaddrBitsExtended)
+  val evec_tag = UInt(OUTPUT, tgBits)
   val exception = Bool(INPUT)
   val retire = UInt(INPUT, log2Up(1+retireWidth))
   val uarch_counters = Vec(16, UInt(INPUT, log2Up(1+retireWidth)))
   val custom_mrw_csrs = Vec(nCustomMrwCsrs, UInt(INPUT, xLen))
   val cause = UInt(INPUT, xLen)
   val pc = UInt(INPUT, vaddrBitsExtended)
+  val pc_tag = UInt(INPUT, tgBits)
   val fatc = Bool(OUTPUT)
   val time = UInt(OUTPUT, xLen)
   val fcsr_rm = Bits(OUTPUT, FPConstants.RM_SZ)
@@ -165,16 +169,22 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_medeleg = Reg(init=UInt(0, xLen))
   val reg_mip = Reg(new MIP)
   val reg_mepc = Reg(UInt(width = vaddrBitsExtended))
+  val reg_mepc_tag = Reg(UInt(width = tgBits))
   val reg_mcause = Reg(Bits(width = xLen))
   val reg_mbadaddr = Reg(UInt(width = vaddrBitsExtended))
   val reg_mscratch = Reg(Bits(width = xLen))
+  val reg_mscratch_tag = Reg(Bits(width = tgBits))
   val reg_mtvec = Reg(init=UInt(p(MtvecInit), paddrBits min xLen))
+  val reg_mtvec_tag = Reg(init=UInt(0, tgBits))
 
   val reg_sepc = Reg(UInt(width = vaddrBitsExtended))
+  val reg_sepc_tag = Reg(UInt(width = tgBits))
   val reg_scause = Reg(Bits(width = xLen))
   val reg_sbadaddr = Reg(UInt(width = vaddrBitsExtended))
   val reg_sscratch = Reg(Bits(width = xLen))
+  val reg_sscratch_tag = Reg(Bits(width = tgBits))
   val reg_stvec = Reg(UInt(width = vaddrBits))
+  val reg_stvec_tag = Reg(init=UInt(0, tgBits))
   val reg_sptbr = Reg(UInt(width = ppnBits))
   val reg_wfi = Reg(init=Bool(false))
 
@@ -211,33 +221,35 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val read_mstatus = io.status.toBits()(xLen-1,0)
 
   val read_mapping = collection.mutable.LinkedHashMap[Int,Bits](
-    CSRs.mimpid -> UInt(2), // open-source but not UCB repos
-    CSRs.marchid -> UInt(0),
-    CSRs.mvendorid -> UInt(0),
-    CSRs.mcycle -> reg_cycle,
-    CSRs.minstret -> reg_instret,
-    CSRs.mucounteren -> UInt(0),
-    CSRs.mutime_delta -> UInt(0),
-    CSRs.mucycle_delta -> UInt(0),
-    CSRs.muinstret_delta -> UInt(0),
-    CSRs.misa -> UInt(isa),
-    CSRs.mstatus -> read_mstatus,
-    CSRs.mtvec -> reg_mtvec,
-    CSRs.mip -> read_mip,
-    CSRs.mie -> reg_mie,
-    CSRs.mideleg -> reg_mideleg,
-    CSRs.medeleg -> reg_medeleg,
-    CSRs.mscratch -> reg_mscratch,
-    CSRs.mepc -> reg_mepc.sextTo(xLen),
-    CSRs.mbadaddr -> reg_mbadaddr.sextTo(xLen),
-    CSRs.mcause -> reg_mcause,
-    CSRs.mhartid -> UInt(id),
-    CSRs.swtrace -> UInt(0))
+    CSRs.mimpid ->          (UInt(2),      UInt(0)           )          // open-source but not UCB repos
+    CSRs.marchid ->         (UInt(0),      UInt(0)           )
+    CSRs.mvendorid ->       (UInt(0),      UInt(0)           )
+    CSRs.mcycle ->          (reg_cycle,    UInt(0)           )
+    CSRs.minstret ->        (reg_instret,  UInt(0)           )
+    CSRs.mucounteren ->     (UInt(0),      UInt(0)           )
+    CSRs.mutime_delta ->    (UInt(0),      UInt(0)           )
+    CSRs.mucycle_delta ->   (UInt(0),      UInt(0)           )
+    CSRs.muinstret_delta -> (UInt(0),      UInt(0)           )
+    CSRs.misa ->            (UInt(isa),    UInt(0)           )
+    CSRs.mstatus ->         (read_mstatus, UInt(0)           )
+    CSRs.mtvec ->           (reg_mtvec,    reg_mtvec_tag     )
+    CSRs.mip ->             (read_mip,     UInt(0)           )
+    CSRs.mie ->             (reg_mie,      UInt(0)           )
+    CSRs.mideleg ->         (reg_mideleg,  UInt(0)           )
+    CSRs.medeleg ->         (reg_medeleg,  UInt(0)           )
+    CSRs.mscratch ->        (reg_mscratch, reg_mscratch_tag  )
+    CSRs.mepc ->            (reg_mepc.sextTo(xLen),
+                                           reg_mepc_tag      )
+    CSRs.mbadaddr ->        (reg_mbadaddr.sextTo(xLen),
+                                           UInt(0)           )
+    CSRs.mcause ->          (reg_mcause,   UInt(0)           )
+    CSRs.mhartid ->         (UInt(id),     UInt(0)           )
+    CSRs.swtrace ->         (UInt(0),      UInt(0)           ))
 
   if (usingFPU) {
-    read_mapping += CSRs.fflags -> reg_fflags
-    read_mapping += CSRs.frm -> reg_frm
-    read_mapping += CSRs.fcsr -> Cat(reg_frm, reg_fflags)
+    read_mapping += CSRs.fflags ->    (reg_fflags,                  UInt(0))
+    read_mapping += CSRs.frm ->       (reg_frm,                     UInt(0))
+    read_mapping += CSRs.fcsr ->      (Cat(reg_frm, reg_fflags),    UInt(0))
   }
 
   if (usingVM) {
@@ -253,36 +265,37 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_sstatus.mie := 0
     read_sstatus.hie := 0
 
-    read_mapping += CSRs.sstatus -> (read_sstatus.toBits())(xLen-1,0)
-    read_mapping += CSRs.sip -> read_sip.toBits
-    read_mapping += CSRs.sie -> read_sie.toBits
-    read_mapping += CSRs.sscratch -> reg_sscratch
-    read_mapping += CSRs.scause -> reg_scause
-    read_mapping += CSRs.sbadaddr -> reg_sbadaddr.sextTo(xLen)
-    read_mapping += CSRs.sptbr -> reg_sptbr
-    read_mapping += CSRs.sasid -> UInt(0)
-    read_mapping += CSRs.sepc -> reg_sepc.sextTo(xLen)
-    read_mapping += CSRs.stvec -> reg_stvec.sextTo(xLen)
-    read_mapping += CSRs.mscounteren -> UInt(0)
-    read_mapping += CSRs.mstime_delta -> UInt(0)
-    read_mapping += CSRs.mscycle_delta -> UInt(0)
-    read_mapping += CSRs.msinstret_delta -> UInt(0)
+    read_mapping += CSRs.sstatus ->   (read_sstatus.toBits())(xLen-1,0),
+                                                                    UInt(0)           )
+    read_mapping += CSRs.sip ->       (read_sip.toBits,             UInt(0)           )
+    read_mapping += CSRs.sie ->       (read_sie.toBits,             UInt(0)           )
+    read_mapping += CSRs.sscratch ->  (reg_sscratch,                reg_sscratch_tag  )
+    read_mapping += CSRs.scause ->    (reg_scause,                  UInt(0)           )
+    read_mapping += CSRs.sbadaddr ->  (reg_sbadaddr.sextTo(xLen),   UInt(0)           )
+    read_mapping += CSRs.sptbr ->     (reg_sptbr,                   UInt(0)           )
+    read_mapping += CSRs.sasid ->     (UInt(0),                     UInt(0)           )
+    read_mapping += CSRs.sepc ->      (reg_sepc.sextTo(xLen),       reg_sepc_tag      )
+    read_mapping += CSRs.stvec ->     (reg_stvec.sextTo(xLen),      reg_stvec_tag     )
+    read_mapping += CSRs.mscounteren -> (UInt(0),                   UInt(0)           )
+    read_mapping += CSRs.mstime_delta -> (UInt(0),                  UInt(0)           )
+    read_mapping += CSRs.mscycle_delta -> (UInt(0),                 UInt(0)           )
+    read_mapping += CSRs.msinstret_delta -> (UInt(0),               UInt(0)           )
   }
 
   if (usingTagMem) {
-    read_mapping += CSRs.tagctrl -> reg_tagctrl
+    read_mapping += CSRs.tagctrl ->   (reg_tagctrl,                 UInt(0)           )
   }
 
   if (xLen == 32) {
-    read_mapping += CSRs.mcycleh -> (reg_cycle >> 32)
-    read_mapping += CSRs.minstreth -> (reg_instret >> 32)
-    read_mapping += CSRs.mutime_deltah -> UInt(0)
-    read_mapping += CSRs.mucycle_deltah -> UInt(0)
-    read_mapping += CSRs.muinstret_deltah -> UInt(0)
+    read_mapping += CSRs.mcycleh ->   ((reg_cycle >> 32),           UInt(0)           )
+    read_mapping += CSRs.minstreth -> ((reg_instret >> 32),         UInt(0)           )
+    read_mapping += CSRs.mutime_deltah -> (UInt(0),                 UInt(0)           )
+    read_mapping += CSRs.mucycle_deltah -> (UInt(0),                UInt(0)           )
+    read_mapping += CSRs.muinstret_deltah -> (UInt(0),              UInt(0)           )
     if (usingVM) {
-      read_mapping += CSRs.mstime_deltah -> UInt(0)
-      read_mapping += CSRs.mscycle_deltah -> UInt(0)
-      read_mapping += CSRs.msinstret_deltah -> UInt(0)
+      read_mapping += CSRs.mstime_deltah -> (UInt(0),               UInt(0)           )
+      read_mapping += CSRs.mscycle_deltah -> (UInt(0),              UInt(0)           )
+      read_mapping += CSRs.msinstret_deltah -> (UInt(0),            UInt(0)           )
     }
   }
 
@@ -290,15 +303,15 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     val addr = 0xff0 + i
     require(addr < (1 << CSR.ADDRSZ))
     require(!read_mapping.contains(addr), "custom MRW CSR address " + i + " is already in use")
-    read_mapping += addr -> io.custom_mrw_csrs(i)
+    read_mapping += addr ->           (io.custom_mrw_csrs(i),       UInt(0)           )
   }
 
   for ((addr, i) <- roccCsrs.zipWithIndex) {
     require(!read_mapping.contains(addr), "RoCC: CSR address " + addr + " is already in use")
-    read_mapping += addr -> io.rocc.csr.rdata(i)
+    read_mapping += addr ->           (io.rocc.csr.rdata(i),        UInt(0)           )
   }
 
-  val decoded_addr = read_mapping map { case (k, v) => k -> (io.rw.addr === k) }
+  val decoded_addr = read_mapping map { case (k, (v, _)) => k -> (io.rw.addr === k) }
 
   val addr_valid = decoded_addr.values.reduce(_||_)
   val fp_csr =
@@ -312,6 +325,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val wdata = Mux(io.rw.cmd === CSR.S, io.rw.rdata | io.rw.wdata,
               Mux(io.rw.cmd === CSR.C, io.rw.rdata & ~io.rw.wdata,
               io.rw.wdata))
+  val wtag  = io.rw.wtag
 
   val do_system_insn = priv_sufficient && system_insn
   val opcode = UInt(1) << io.rw.addr(2,0)
@@ -336,9 +350,12 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val cause_lsbs = cause(log2Up(xLen)-1,0)
   val delegate = Bool(p(UseVM)) && reg_mstatus.prv < PRV.M && Mux(cause(xLen-1), reg_mideleg(cause_lsbs), reg_medeleg(cause_lsbs))
   val tvec = Mux(delegate, reg_stvec.sextTo(vaddrBitsExtended), reg_mtvec)
+  val tvec_tag = Mux(delegate, reg_stvec_tag, reg_mtvec_tag)
   val epc = Mux(Bool(p(UseVM)) && !csr_addr_priv(1), reg_sepc, reg_mepc)
+  val epc_tag = Mux(Bool(p(UseVM)) && !csr_addr_priv(1), reg_sepc_tag, reg_mepc_tag)
   io.fatc := insn_sfence_vm
   io.evec := Mux(io.exception || csr_xcpt, tvec, epc)
+  io.evec_tag := Mux(io.exception || csr_xcpt, tvec_tag, epc_tag)
   io.ptbr := reg_sptbr
   io.csr_xcpt := csr_xcpt
   io.eret := insn_ret
@@ -360,10 +377,12 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       cause === Causes.fault_store || cause === Causes.misaligned_store
     val badaddr = Mux(ldst, compressVAddr(io.rw.wdata), io.pc)
     val epc = ~(~io.pc | (coreInstBytes-1))
+    val epc_tag = io.pc_tag
     val pie = read_mstatus(reg_mstatus.prv)
 
     when (delegate) {
       reg_sepc := epc
+      reg_sepc_tag := epc_tag
       reg_scause := cause
       reg_sbadaddr := badaddr
       reg_mstatus.spie := pie
@@ -372,6 +391,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       reg_mstatus.prv := PRV.S
     }.otherwise {
       reg_mepc := epc
+      reg_mepc_tag := epc_tag
       reg_mcause := cause
       reg_mbadaddr := badaddr
       reg_mstatus.mpie := pie
@@ -401,7 +421,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.time := reg_cycle
   io.csr_stall := reg_wfi
 
-  io.rw.rdata := Mux1H(for ((k, v) <- read_mapping) yield decoded_addr(k) -> v)
+  io.rw.rdata := Mux1H(for ((k, (v, _)) <- read_mapping) yield decoded_addr(k) -> v)
+  io.rw.rtag  := Mux1H(for ((k, (_, v)) <- read_mapping) yield decoded_addr(k) -> v)
 
   io.fcsr_rm := reg_frm
   when (io.fcsr_flags.valid) {
@@ -443,10 +464,10 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       }
     }
     when (decoded_addr(CSRs.mie))      { reg_mie := wdata & supported_interrupts }
-    when (decoded_addr(CSRs.mepc))     { reg_mepc := ~(~wdata | (coreInstBytes-1)) }
-    when (decoded_addr(CSRs.mscratch)) { reg_mscratch := wdata }
+    when (decoded_addr(CSRs.mepc))     { reg_mepc := ~(~wdata | (coreInstBytes-1)); reg_mepc_tag := wtag }
+    when (decoded_addr(CSRs.mscratch)) { reg_mscratch := wdata; reg_mscratch_tag := wtag }
     if (p(MtvecWritable))
-      when (decoded_addr(CSRs.mtvec))  { reg_mtvec := wdata >> 2 << 2 }
+      when (decoded_addr(CSRs.mtvec))  { reg_mtvec := wdata >> 2 << 2; reg_mtvec_tag := wtag }
     when (decoded_addr(CSRs.mcause))   { reg_mcause := wdata & UInt((BigInt(1) << (xLen-1)) + 31) /* only implement 5 LSBs and MSB */ }
     when (decoded_addr(CSRs.mbadaddr)) { reg_mbadaddr := wdata(vaddrBitsExtended-1,0) }
     if (usingFPU) {
@@ -469,10 +490,10 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
         reg_mip.ssip := new_sip.ssip
       }
       when (decoded_addr(CSRs.sie))      { reg_mie := (reg_mie & ~reg_mideleg) | (wdata & reg_mideleg) }
-      when (decoded_addr(CSRs.sscratch)) { reg_sscratch := wdata }
+      when (decoded_addr(CSRs.sscratch)) { reg_sscratch := wdata; reg_sscratch_tag := wtag }
       when (decoded_addr(CSRs.sptbr))    { reg_sptbr := wdata }
-      when (decoded_addr(CSRs.sepc))     { reg_sepc := wdata >> log2Up(coreInstBytes) << log2Up(coreInstBytes) }
-      when (decoded_addr(CSRs.stvec))    { reg_stvec := wdata >> 2 << 2 }
+      when (decoded_addr(CSRs.sepc))     { reg_sepc := wdata >> log2Up(coreInstBytes) << log2Up(coreInstBytes); reg_sepc_tag := wtag }
+      when (decoded_addr(CSRs.stvec))    { reg_stvec := wdata >> 2 << 2; reg_stvec_tag := wtag }
       when (decoded_addr(CSRs.scause))   { reg_scause := wdata & UInt((BigInt(1) << (xLen-1)) + 31) /* only implement 5 LSBs and MSB */ }
       when (decoded_addr(CSRs.sbadaddr)) { reg_sbadaddr := wdata(vaddrBitsExtended-1,0) }
       when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata & delegable_interrupts }
