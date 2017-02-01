@@ -126,7 +126,7 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle {
   val interrupt_cause = UInt(OUTPUT, xLen)
   val irq = Bool(INPUT)
 
-  val tagCtrl = new TagCtrlSig().asOutput
+  val tag_ctrl = new TagCtrlSig().asOutput
 }
 
 class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
@@ -195,7 +195,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_instret = WideCounter(64, io.retire)
   val reg_cycle: UInt = if (enableCommitLog) { reg_instret } else { WideCounter(64) }
 
-  val reg_tagctrl = Reg(Bits(width = xLen))
+  val reg_tag_ctrl = Reg(Bits(width = xLen))
 
   val mip = Wire(init=reg_mip)
   mip.irq := io.irq
@@ -283,7 +283,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   }
 
   if (usingTagMem) {
-    read_mapping += CSRs.tagctrl ->   (reg_tagctrl,                 UInt(0)           )
+    read_mapping += CSRs.tagctrl ->   (reg_tag_ctrl,                UInt(0)           )
   }
 
   if (xLen == 32) {
@@ -500,7 +500,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata & delegable_exceptions }
     }
     if (usingTagMem) {
-      when (decoded_addr(CSRs.tagctrl))  { reg_tagctrl := wdata }
+      when (decoded_addr(CSRs.tagctrl))  { reg_tag_ctrl := wdata }
     }
   }
 
@@ -511,6 +511,6 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csr.wen := wen
 
   if (usingTagMem) {
-    io.tagCtrl := reg_tagctrl
+    io.tag_ctrl := reg_tag_ctrl
   }
 }

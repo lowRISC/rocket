@@ -291,7 +291,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_op1_tag = Mux(ex_ctrl.sel_alu1 === A1_RS1, ex_rs_tag(0), UInt(0))
   val ex_op2_tag = Mux(ex_ctrl.sel_alu2 === A2_RS2, ex_rs_tag(1), UInt(0))
   val ex_alu_tag =
-    if (usingTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tagCtrl.maskALU
+    if (usingTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALU
     else             UInt(0)
 
   val alu = Module(new ALU)
