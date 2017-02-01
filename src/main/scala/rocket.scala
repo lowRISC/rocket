@@ -161,6 +161,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_reg_load_use        = Reg(Bool())
   val ex_reg_cause           = Reg(UInt())
   val ex_reg_pc              = Reg(UInt())
+  val ex_reg_pc_tag          = Reg(UInt())
   val ex_reg_inst            = Reg(Bits())
 
   val mem_reg_xcpt_interrupt  = Reg(Bool())
@@ -173,6 +174,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val mem_reg_cause           = Reg(UInt())
   val mem_reg_slow_bypass     = Reg(Bool())
   val mem_reg_pc              = Reg(UInt())
+  val mem_reg_pc_tag          = Reg(UInt())
   val mem_reg_inst            = Reg(Bits())
   val mem_reg_wdata           = Reg(Bits())
   val mem_reg_wtag            = Reg(Bits())
@@ -186,6 +188,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val wb_reg_cause           = Reg(UInt())
   val wb_reg_rocc_pending    = Reg(init=Bool(false))
   val wb_reg_pc              = Reg(UInt())
+  val wb_reg_pc_tag          = Reg(UInt())
   val wb_reg_inst            = Reg(Bits())
   val wb_reg_wdata           = Reg(Bits())
   val wb_reg_wtag            = Reg(Bits())
@@ -197,6 +200,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
   // decode stage
   val id_pc = io.imem.resp.bits.pc
+  val id_pc_tag = io.imem.resp.bits.pc
   val id_inst = io.imem.resp.bits.data(0).toBits; require(fetchWidth == 1)
   val id_ctrl = Wire(new IntCtrlSigs()).decode(id_inst, decode_table)
   val id_raddr3 = id_inst(31,27)
@@ -339,6 +343,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   when (!ctrl_killd || csr.io.interrupt) {
     ex_reg_inst := id_inst
     ex_reg_pc := id_pc
+    ex_reg_pc_tag := id_pc_tag
   }
 
   // replay inst in ex stage?
@@ -390,6 +395,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
     mem_reg_inst := ex_reg_inst
     mem_reg_pc := ex_reg_pc
+    mem_reg_pc_tag := ex_rag_pc_tag
     mem_reg_wdata := alu.io.out
     mem_reg_wtag := ex_alu_tag
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
@@ -413,6 +419,13 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   div.io.kill := killm_common && Reg(next = div.io.req.fire())
   val ctrl_killm = killm_common || mem_xcpt || fpu_kill_mem
 
+  // set pc tag
+  val mem_npc_tag = Mux(mem_ctrl.jalr, csr.io.tag_ctrl.maskCFlowIndirBranchTgt,
+                                       csr.io.tag_ctrl.maskCFlowDirBranchTgt)
+  when(mem_cfi_taken && !mem_wrong_npc) {
+    mem_reg_pc_tag := mem_npc_tag // branch predicted correct and taken
+  }
+
   // writeback stage
   wb_reg_valid := !ctrl_killm
   wb_reg_replay := replay_mem && !take_pc_wb
@@ -427,6 +440,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     }
     wb_reg_inst := mem_reg_inst
     wb_reg_pc := mem_reg_pc
+    wb_reg_pc := mem_reg_pc_tag
   }
 
   val wb_set_sboard = wb_ctrl.div || wb_dcache_miss || wb_ctrl.rocc
@@ -559,6 +573,11 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     Mux(wb_xcpt || csr.io.eret, csr.io.evec,     // exception or [m|s]ret
     Mux(replay_wb,              wb_reg_pc,       // replay
                                 mem_npc)).toUInt // mispredicted branch
+  io.imem.req.bits.pc_tag :=
+    Mux(wb_xcpt || csr.io.eret, csr.io.evec_tag,
+    Mux(replay_wb,              wb_reg_pc_tag,
+    Mux(mem_cfi_taken,          mem_npc_tag,     // mispredication and branch taken
+                                UInt(0)))).toUInt
   io.imem.flush_icache := wb_reg_valid && wb_ctrl.fence_i
   io.imem.flush_tlb := csr.io.fatc
   io.imem.resp.ready := !ctrl_stalld || csr.io.interrupt
