@@ -508,6 +508,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc
   csr.io.pc := Mux(wb_reg_xcpt, wb_reg_pc, io.dmem.resp.bits.pc)
+  csr.io.pc_tag := Mux(wb_reg_xcpt, wb_reg_pc_tag, UInt(0))
   csr.io.uarch_counters.foreach(_ := Bool(false))
   io.ptw.ptbr := csr.io.ptbr
   io.ptw.invalidate := csr.io.fatc
