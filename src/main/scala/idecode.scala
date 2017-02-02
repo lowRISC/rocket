@@ -70,8 +70,8 @@ class XDecode(implicit val p: Parameters) extends DecodeConstants
                 //               jal                                                               renf1             fence.i
                 //               | jalr                                                            | renf2           |
                 //         fp_val| | renx2                                                         | | renf3         |
-                //         | rocc| | | renx1     s_alu1                          mem_val           | | | wfd         | 
-                //   val   | | br| | | | s_alu2  |       imm    dw     alu       | mem_cmd mem_type| | | | div       | 
+                //         | rocc| | | renx1     s_alu1                          mem_val           | | | wfd         |
+                //   val   | | br| | | | s_alu2  |       imm    dw     alu       | mem_cmd mem_type| | | | div       |
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | | | wxd     | fence
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | | | | csr   | | amo
                 //   |     | | | | | | | |       |       |      |      |         | |         |     | | | | | | |     | | |
@@ -305,14 +305,14 @@ class RoCCDecode(implicit val p: Parameters) extends DecodeConstants
 class TagDecode(implicit val p: Parameters) extends DecodeConstants
 {
   val table: Array[(BitPat, List[BitPat])] = Array(
-                //               jal                                                                           fence.i
-                //               | jalr                                                            mul_val     | sret
-                //         fp_val| | renx2                                                         | div_val   | | syscall
-                //         | rocc| | | renx1     s_alu1                          mem_val           | | wen     | | |
-                //   val   | | br| | | | s_alu2  |       imm    dw     alu       | mem_cmd mem_type| | | csr   | | | replay_next
-                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | fence
-                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | amo
-                //   |     | | | | | | | |       |       |      |      |         | |         |     | | | |     | | | | | |
-    TAGR->      List(xpr64,N,N,N,N,N,N,Y,A2_IMM, A1_RS1, IMM_I, DW_XPR,FN_ADD,   Y,M_XRD,    MT_T, N,N,N,N,N,Y,CSR.N,N,N,N),
-    TAGW->      List(xpr64,N,N,N,N,N,Y,Y,A2_IMM, A1_RS1, IMM_S, DW_XPR,FN_ADD,   Y,M_XWR,    MT_T, N,N,N,N,N,N,CSR.N,N,N,N))
+                //               jal                                                                  renf1             fence.i
+                //               | jalr                                                               | renf2           |
+                //         fp_val| | renx2                                                            | | renf3         |
+                //         | rocc| | | renx1      s_alu1                            mem_val           | | | wfd         |
+                //   val   | | br| | | | s_alu2   |         imm    dw     alu       | mem_cmd mem_type| | | | div       |
+                //   |     | | | | | | | |        |         |      |      |         | |         |     | | | | | wxd     | fence
+                //   |     | | | | | | | |        |         |      |      |         | |         |     | | | | | | csr   | | amo
+                //   |     | | | | | | | |        |         |      |      |         | |         |     | | | | | | |     | | |
+    TAGR->      List(xpr64,N,N,N,N,N,N,Y,A2_ZERO, A1_RS1_T, IMM_X, DW_XPR,FN_ADD,   N,M_X,      MT_X, N,N,N,N,N,Y,CSR.N,N,N,N),
+    TAGW->      List(xpr64,N,N,N,N,N,Y,Y,A2_ZERO, A1_RS1,   IMM_X, DW_T,  FN_ADD,   N,M_X,      MT_X, N,N,N,N,N,Y,CSR.N,N,N,N))
 }

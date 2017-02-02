@@ -290,8 +290,9 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     yield Mux(ex_reg_rs_bypass(i), bypass_mux_tag(ex_reg_rs_lsb(i)), ex_reg_rs_tag(i))
   val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
   val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
-    A1_RS1 -> ex_rs(0).toSInt,
-    A1_PC -> ex_reg_pc.toSInt))
+    A1_RS1   -> ex_rs(0).toSInt,
+    A1_PC    -> ex_reg_pc.toSInt,
+    A1_RS1_T -> ex_rs_tag(0).toSInt))
   val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq(
     A2_RS2 -> ex_rs(1).toSInt,
     A2_IMM -> ex_imm,
@@ -503,10 +504,11 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                        wb_reg_pc_tag(tgInstBits-1,0) =/= UInt(0) &&
                        wb_reg_pc_tag(tgInstBits-1,0) & wb_reg_instr_tag =/= UInt(0)
 
-************************
   val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.dtag, wb_reg_wtag)
-  when (rf_wen) { rf.write_data(rf_waddr, Mux(io.tgCtl.op === TG_WB_R, rf_wtag, rf_wdata)) }
-************************
+  when (rf_wen) {
+    when(Mux(wb_ctrl.alu_dw =/= DW_T) { rf.write_data(rf_waddr, rf_wdata) } // TAGW keep rd
+    rf.write_tag(rf_waddr, Mux(wb_ctrl.alu_dw === DW_T, rf_wdata, rf_wtag)) // TAGW update tag
+  }
 
   // tagged memory support
   tag_xcpt := wb_pc_tag_xcpt || io.dmem.tag_xcpt

@@ -18,10 +18,11 @@ trait ScalarOpConstants {
   val BR_LTU  = UInt(6, 3)
   val BR_GEU  = UInt(7, 3)
 
-  val A1_X    = BitPat("b??")
-  val A1_ZERO = UInt(0, 2)
-  val A1_RS1  = UInt(1, 2)
-  val A1_PC   = UInt(2, 2)
+  val A1_X     = BitPat("b??")
+  val A1_ZERO  = UInt(0, 2)
+  val A1_RS1   = UInt(1, 2)
+  val A1_PC    = UInt(2, 2)
+  val A1_RS1_T = UInt(3, 2)
 
   val IMM_X  = BitPat("b???")
   val IMM_S  = UInt(0, 3)
@@ -41,9 +42,10 @@ trait ScalarOpConstants {
   val N = BitPat("b0")
   val Y = BitPat("b1")
 
-  val SZ_DW = 1
-  val DW_X  = X
-  val DW_32 = N
-  val DW_64 = Y
-  val DW_XPR = Y
+  val SZ_DW = 2
+  val DW_X  = BitPat("b??")
+  val DW_32 = UInt(0, 2)
+  val DW_64 = UInt(1, 2)
+  val DW_T  = UInt(2, 2)
+  val DW_XPR = UInt(1, 2)
 }
