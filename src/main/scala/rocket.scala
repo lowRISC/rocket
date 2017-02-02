@@ -163,6 +163,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_reg_pc              = Reg(UInt())
   val ex_reg_pc_tag          = Reg(UInt())
   val ex_reg_inst            = Reg(Bits())
+  val ex_reg_inst_tag        = Reg(Bits())
 
   val mem_reg_xcpt_interrupt  = Reg(Bool())
   val mem_reg_valid           = Reg(Bool())
@@ -176,6 +177,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val mem_reg_pc              = Reg(UInt())
   val mem_reg_pc_tag          = Reg(UInt())
   val mem_reg_inst            = Reg(Bits())
+  val mem_reg_inst_tag        = Reg(Bits())
   val mem_reg_wdata           = Reg(Bits())
   val mem_reg_wtag            = Reg(Bits())
   val mem_reg_rs2             = Reg(Bits())
@@ -190,9 +192,11 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val wb_reg_pc              = Reg(UInt())
   val wb_reg_pc_tag          = Reg(UInt())
   val wb_reg_inst            = Reg(Bits())
+  val wb_reg_inst_tag        = Reg(Bits())
   val wb_reg_wdata           = Reg(Bits())
   val wb_reg_wtag            = Reg(Bits())
   val wb_reg_rs2             = Reg(Bits())
+  val tag_xcpt               = Wire(Bool())
   val take_pc_wb             = Wire(Bool())
 
   val take_pc_mem_wb = take_pc_wb || take_pc_mem
@@ -202,6 +206,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val id_pc = io.imem.resp.bits.pc
   val id_pc_tag = io.imem.resp.bits.pc
   val id_inst = io.imem.resp.bits.data(0).toBits; require(fetchWidth == 1)
+  val id_inst_tag = io.imem.resp.bits.tag(0).toBits; require(fetchWidth == 1)
   val id_ctrl = Wire(new IntCtrlSigs()).decode(id_inst, decode_table)
   val id_raddr3 = id_inst(31,27)
   val id_raddr2 = id_inst(24,20)
@@ -342,6 +347,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   }
   when (!ctrl_killd || csr.io.interrupt) {
     ex_reg_inst := id_inst
+    ex_reg_inst_tag := id_inst_tag
     ex_reg_pc := id_pc
     ex_reg_pc_tag := id_pc_tag
   }
@@ -394,6 +400,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     mem_reg_slow_bypass := ex_slow_bypass
 
     mem_reg_inst := ex_reg_inst
+    mem_reg_inst_tag := ex_reg_inst_tag
     mem_reg_pc := ex_reg_pc
     mem_reg_pc_tag := ex_rag_pc_tag
     mem_reg_wdata := alu.io.out
@@ -439,6 +446,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
       wb_reg_rs2 := mem_reg_rs2
     }
     wb_reg_inst := mem_reg_inst
+    wb_reg_inst_tag := mem_reg_inst
     wb_reg_pc := mem_reg_pc
     wb_reg_pc := mem_reg_pc_tag
   }
@@ -447,7 +455,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val replay_wb_common = io.dmem.s2_nack || wb_reg_replay
   val wb_rocc_val = wb_reg_valid && wb_ctrl.rocc && !replay_wb_common
   val replay_wb = replay_wb_common || wb_reg_valid && wb_ctrl.rocc && !io.rocc.cmd.ready
-  val wb_xcpt = wb_reg_xcpt || csr.io.csr_xcpt
+  val wb_xcpt = wb_reg_xcpt || tag_xcpt || csr.io.csr_xcpt
   take_pc_wb := replay_wb || wb_xcpt || csr.io.eret
 
   when (wb_rocc_val) { wb_reg_rocc_pending := !io.rocc.cmd.ready }
@@ -490,13 +498,17 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                  Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
                  wb_reg_wdata)))
 
+  val wb_pc_tag_xcpt = wb_reg_valid &&
+                       wb_reg_pc_tag(tgInstBits-1,0) =/= UInt(0) &&
+                       wb_reg_pc_tag(tgInstBits-1,0) & wb_reg_instr_tag =/= UInt(0)
+
 ************************
   val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.dtag, wb_reg_wtag)
   when (rf_wen) { rf.write_data(rf_waddr, Mux(io.tgCtl.op === TG_WB_R, rf_wtag, rf_wdata)) }
+************************
 
   // tagged memory support
-  val tag_xcpt = io.tgCtl.xcpt || io.dmem.tag_xcpt
-************************
+  tag_xcpt := wb_pc_tag_xcpt || io.dmem.tag_xcpt
 
   // hook up control/status regfile
   csr.io.exception := wb_reg_xcpt || tag_xcpt
