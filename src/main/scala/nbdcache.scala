@@ -55,6 +55,7 @@ trait HasCoreMemOp extends HasCoreParameters {
 
 trait HasCoreData extends HasCoreParameters {
   val data = Bits(width = coreDataBits)
+  val dtag = Bits(width = tgBits)
 }
 
 trait HasSDQId extends HasL1HellaCacheParameters {
