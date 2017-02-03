@@ -42,10 +42,9 @@ trait ScalarOpConstants {
   val N = BitPat("b0")
   val Y = BitPat("b1")
 
-  val SZ_DW = 2
-  val DW_X  = BitPat("b??")
-  val DW_32 = UInt(0, 2)
-  val DW_64 = UInt(1, 2)
-  val DW_T  = UInt(2, 2)
-  val DW_XPR = UInt(1, 2)
+  val SZ_DW = 1
+  val DW_X  = BitPat("b?")
+  val DW_32 = N
+  val DW_64 = Y
+  val DW_XPR = Y
 }
