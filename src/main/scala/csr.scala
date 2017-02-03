@@ -87,7 +87,7 @@ class TagCtrlSig(implicit p: Parameters) extends CoreBundle {
   val maskCFlowIndirBranchTgt = Bits(width = tgInstBits)
   val maskJmpChck             = Bits(width = tgBits)
   val maskJmpProp             = Bits(width = tgBits)
-  val maskFetchChck           = Bits(width = tgBits)
+  val maskFetchChck           = Bits(width = tgInstBits)
 }
 
 class CSRFileIO(implicit p: Parameters) extends CoreBundle {

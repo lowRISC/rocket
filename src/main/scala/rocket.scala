@@ -235,6 +235,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val id_illegal_insn = !id_ctrl.legal ||
     id_ctrl.fp && !csr.io.status.fs.orR ||
     id_ctrl.rocc && !csr.io.status.xs.orR
+  val id_inst_tag_xcpt = (id_inst_tag & csr.io.tag_ctrl.maskFetchChck) =/= UInt(0)
   // stall decode for fences (now, for AMO.aq; later, for AMO.rl and FENCE)
   val id_amo_aq = id_inst(26)
   val id_amo_rl = id_inst(25)
@@ -250,7 +251,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val (id_xcpt, id_cause) = checkExceptions(List(
     (csr.io.interrupt,          csr.io.interrupt_cause),
     (io.imem.resp.bits.xcpt_if, UInt(Causes.fault_fetch)),
-    (id_illegal_insn,           UInt(Causes.illegal_instruction))))
+    (id_illegal_insn,           UInt(Causes.illegal_instruction)),
+    (id_inst_tag_xcpt,          UInt(Causes.tag_check_failure))))
 
   val dcache_bypass_data =
     if (fastLoadByte) io.dmem.resp.bits.data
