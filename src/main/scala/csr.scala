@@ -511,6 +511,6 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csr.wen := wen
 
   if (usingTagMem) {
-    io.tag_ctrl := reg_tag_ctrl
+    io.tag_ctrl := new TagCtrlSig().fromBits(reg_tag_ctrl)
   }
 }

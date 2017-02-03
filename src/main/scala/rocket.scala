@@ -190,7 +190,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val wb_reg_cause           = Reg(UInt())
   val wb_reg_rocc_pending    = Reg(init=Bool(false))
   val wb_reg_pc              = Reg(UInt())
-  val wb_reg_pc_tag          = Reg(UInt())
+  val wb_reg_pc_tag          = Reg(UInt(width=tgBits)) // chisel fails to auto size
   val wb_reg_inst            = Reg(Bits())
   val wb_reg_inst_tag        = Reg(Bits())
   val wb_reg_wdata           = Reg(Bits())
@@ -407,7 +407,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     mem_reg_inst := ex_reg_inst
     mem_reg_inst_tag := ex_reg_inst_tag
     mem_reg_pc := ex_reg_pc
-    mem_reg_pc_tag := ex_rag_pc_tag
+    mem_reg_pc_tag := ex_reg_pc_tag
     mem_reg_wdata := alu.io.out
     mem_reg_wtag := ex_alu_tag
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
@@ -510,7 +510,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
   val wb_pc_tag_xcpt = wb_reg_valid &&
                        wb_reg_pc_tag(tgInstBits-1,0) =/= UInt(0) &&
-                       wb_reg_pc_tag(tgInstBits-1,0) & wb_reg_instr_tag =/= UInt(0)
+                       (wb_reg_pc_tag(tgInstBits-1,0) & wb_reg_inst_tag) =/= UInt(0)
 
   when (rf_wen) {
     when(!wb_ctrl.tagw) { rf.write_data(rf_waddr, rf_wdata) }  // do not update reg when TAGW
