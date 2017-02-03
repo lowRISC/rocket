@@ -267,9 +267,9 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     if (usingTagMem) {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
-        (ex_reg_valid && io.tgExe.valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
-        (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
-        (mem_reg_valid && io.tgMem.valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.dtag))
+        (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
+        (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
+        (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.dtag))
     } else {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass

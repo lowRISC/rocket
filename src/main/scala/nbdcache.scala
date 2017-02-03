@@ -56,6 +56,7 @@ trait HasCoreMemOp extends HasCoreParameters {
 trait HasCoreData extends HasCoreParameters {
   val data = Bits(width = coreDataBits)
   val dtag = Bits(width = tgBits)
+  val pc   = Bits(width = vaddrBitsExtended)
 }
 
 trait HasSDQId extends HasL1HellaCacheParameters {
@@ -884,7 +885,6 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     s2_req.cmd := s1_req.cmd
     if(usingTagMem) {
       when(s1_replay) {
-        s2_req.tag_ctrl := mshrs.io.replay.bits.tag_ctrl
         s2_req.pc       := mshrs.io.replay.bits.pc
       }
     }

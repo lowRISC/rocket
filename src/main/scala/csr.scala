@@ -220,30 +220,30 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     isa_string.map(x => 1 << (x - 'A')).reduce(_|_)
   val read_mstatus = io.status.toBits()(xLen-1,0)
 
-  val read_mapping = collection.mutable.LinkedHashMap[Int,Bits](
-    CSRs.mimpid ->          (UInt(2),      UInt(0)           )          // open-source but not UCB repos
-    CSRs.marchid ->         (UInt(0),      UInt(0)           )
-    CSRs.mvendorid ->       (UInt(0),      UInt(0)           )
-    CSRs.mcycle ->          (reg_cycle,    UInt(0)           )
-    CSRs.minstret ->        (reg_instret,  UInt(0)           )
-    CSRs.mucounteren ->     (UInt(0),      UInt(0)           )
-    CSRs.mutime_delta ->    (UInt(0),      UInt(0)           )
-    CSRs.mucycle_delta ->   (UInt(0),      UInt(0)           )
-    CSRs.muinstret_delta -> (UInt(0),      UInt(0)           )
-    CSRs.misa ->            (UInt(isa),    UInt(0)           )
-    CSRs.mstatus ->         (read_mstatus, UInt(0)           )
-    CSRs.mtvec ->           (reg_mtvec,    reg_mtvec_tag     )
-    CSRs.mip ->             (read_mip,     UInt(0)           )
-    CSRs.mie ->             (reg_mie,      UInt(0)           )
-    CSRs.mideleg ->         (reg_mideleg,  UInt(0)           )
-    CSRs.medeleg ->         (reg_medeleg,  UInt(0)           )
-    CSRs.mscratch ->        (reg_mscratch, reg_mscratch_tag  )
+  val read_mapping = collection.mutable.LinkedHashMap[Int,(Bits, Bits)](
+    CSRs.mimpid ->          (UInt(2),      UInt(0)           ),          // open-source but not UCB repos
+    CSRs.marchid ->         (UInt(0),      UInt(0)           ),
+    CSRs.mvendorid ->       (UInt(0),      UInt(0)           ),
+    CSRs.mcycle ->          (reg_cycle,    UInt(0)           ),
+    CSRs.minstret ->        (reg_instret,  UInt(0)           ),
+    CSRs.mucounteren ->     (UInt(0),      UInt(0)           ),
+    CSRs.mutime_delta ->    (UInt(0),      UInt(0)           ),
+    CSRs.mucycle_delta ->   (UInt(0),      UInt(0)           ),
+    CSRs.muinstret_delta -> (UInt(0),      UInt(0)           ),
+    CSRs.misa ->            (UInt(isa),    UInt(0)           ),
+    CSRs.mstatus ->         (read_mstatus, UInt(0)           ),
+    CSRs.mtvec ->           (reg_mtvec,    reg_mtvec_tag     ),
+    CSRs.mip ->             (read_mip,     UInt(0)           ),
+    CSRs.mie ->             (reg_mie,      UInt(0)           ),
+    CSRs.mideleg ->         (reg_mideleg,  UInt(0)           ),
+    CSRs.medeleg ->         (reg_medeleg,  UInt(0)           ),
+    CSRs.mscratch ->        (reg_mscratch, reg_mscratch_tag  ),
     CSRs.mepc ->            (reg_mepc.sextTo(xLen),
-                                           reg_mepc_tag      )
+                                           reg_mepc_tag      ),
     CSRs.mbadaddr ->        (reg_mbadaddr.sextTo(xLen),
-                                           UInt(0)           )
-    CSRs.mcause ->          (reg_mcause,   UInt(0)           )
-    CSRs.mhartid ->         (UInt(id),     UInt(0)           )
+                                           UInt(0)           ),
+    CSRs.mcause ->          (reg_mcause,   UInt(0)           ),
+    CSRs.mhartid ->         (UInt(id),     UInt(0)           ),
     CSRs.swtrace ->         (UInt(0),      UInt(0)           ))
 
   if (usingFPU) {
@@ -265,7 +265,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_sstatus.mie := 0
     read_sstatus.hie := 0
 
-    read_mapping += CSRs.sstatus ->   (read_sstatus.toBits())(xLen-1,0),
+    read_mapping += CSRs.sstatus ->   ((read_sstatus.toBits())(xLen-1,0),
                                                                     UInt(0)           )
     read_mapping += CSRs.sip ->       (read_sip.toBits,             UInt(0)           )
     read_mapping += CSRs.sie ->       (read_sie.toBits,             UInt(0)           )
