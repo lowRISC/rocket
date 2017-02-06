@@ -126,9 +126,12 @@ class ICache(implicit p: Parameters) extends CoreModule()(p) with HasL1CachePara
     }
     val s0_raddr = s0_pgoff(untagBits-1,blockOffBits-(if(refillCycles > 1) refill_cnt.getWidth else 0))
     val rdout = data_array.read(s0_raddr, !wen && s0_valid)
-    s1_dout(i) := rdout >> rowTagBits
     if(useTagMem) {
+      s1_dout(i) := rdout >> rowTagBits
       s1_tout(i) := rdout(rowTagBits-1,0)
+    } else {
+      s1_dout(i) := rdout
+      s1_tout(i) := UInt(0)
     }
   }
 

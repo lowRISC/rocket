@@ -148,6 +148,12 @@ class RocketTile(id: Int = 0, resetSignal: Bool = null)(implicit p: Parameters) 
     }
   }
 
+  // tagged memory
+  core.io.dmem.tag_xcpt := dcache.io.cpu.tag_xcpt
+  core.io.dmem.tag_replay := dcache.io.cpu.tag_replay
+  dcache.io.cpu.tag_ctrl := core.io.dmem.tag_ctrl
+  dcache.io.cpu.ex_xcpt := core.io.dmem.ex_xcpt
+
   // debug
   io.dbgnet <> core.io.dbgnet
   io.dbgrst <> core.io.dbgrst

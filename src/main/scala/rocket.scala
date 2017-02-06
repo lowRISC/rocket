@@ -453,7 +453,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     wb_reg_inst := mem_reg_inst
     wb_reg_inst_tag := mem_reg_inst
     wb_reg_pc := mem_reg_pc
-    wb_reg_pc := mem_reg_pc_tag
+    wb_reg_pc_tag := mem_reg_pc_tag
   }
 
   val wb_set_sboard = wb_ctrl.div || wb_dcache_miss || wb_ctrl.rocc

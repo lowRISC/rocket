@@ -31,11 +31,17 @@ class HellaCacheArbiter(n: Int)(implicit p: Parameters) extends Module
       io.mem.req.bits.addr := req.bits.addr
       io.mem.req.bits.phys := req.bits.phys
       io.mem.req.bits.tag := Cat(req.bits.tag, UInt(i, log2Up(n)))
+      if (p(UseTagMem)) {
+        io.mem.req.bits.pc := req.bits.pc
+      }
       s1_id := UInt(i)
     }
     def connect_s1() = {
       io.mem.s1_kill := io.requestor(i).s1_kill
       io.mem.s1_data := io.requestor(i).s1_data
+      if (p(UseTagMem)) {
+        io.mem.s1_dtag := io.requestor(i).s1_dtag
+      }
     }
 
     if (i == n-1) {
