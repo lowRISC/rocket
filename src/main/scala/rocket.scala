@@ -305,8 +305,13 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_alu_tag =
     if (useTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALU
     else           UInt(0)
-  val ex_jalr_tag_xcpt = if (useTagMem) ex_ctrl.jalr && (ex_rs_tag(0) & csr.io.tag_ctrl.maskJmpChck) === UInt(0)
-                         else Bool(false)
+  val ex_jalr_tag_xcpt =
+    if (useTagMem) {
+      ex_ctrl.jalr &&
+      csr.io.tag_ctrl.maskJmpChck =/= UInt(0) &&
+      (ex_rs_tag(0) & csr.io.tag_ctrl.maskJmpChck) === UInt(0)
+    }
+    else Bool(false)
 
   val alu = Module(new ALU)
   alu.io.dw := ex_ctrl.alu_dw
