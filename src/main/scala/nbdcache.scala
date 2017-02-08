@@ -825,6 +825,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val s2_replay = Reg(next=s1_replay, init=Bool(false)) && s2_req.cmd =/= M_NOP
   val s2_recycle = Wire(Bool())
   val s2_valid_masked = Wire(Bool())
+  val s2_tag_xcpt = Wire(Bool())
 
   val s3_valid = Reg(init=Bool(false))
   val s3_req = Reg(io.cpu.req.bits)
@@ -883,7 +884,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
     when (s1_recycled) { s2_req.data := s1_req.data }
     s2_req.tag := s1_req.tag
     s2_req.cmd := s1_req.cmd
-    if(usingTagMem) {
+    if(useTagMem) {
       when(s1_replay) {
         s2_req.pc       := mshrs.io.replay.bits.pc
       }
@@ -999,7 +1000,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   s2_wtag := s2_req.dtag & io.cpu.tag_ctrl.maskStoreProp
 
   // store/amo hits
-  s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd)
+  s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd) && !s2_tag_xcpt
   val amoalu = Module(new AMOALU)
   when ((s2_valid || s2_replay) && (isWrite(s2_req.cmd) || s2_data_correctable)) {
     s3_req := s2_req
@@ -1092,7 +1093,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val s4_valid = Reg(next=s3_valid, init=Bool(false))
   val s4_req = RegEnable(s3_req, s3_valid && metaReadArb.io.out.valid)
   val bypasses = List(
-    ((s2_valid_masked || s2_replay) && !s2_sc_fail, s2_req, amoalu.io.out, s2_req.dtag),
+    ((s2_valid_masked || s2_replay) && !s2_sc_fail && !s2_tag_xcpt, s2_req, amoalu.io.out, s2_wtag),
     (s3_valid, s3_req, s3_req.data, s3_req.dtag),
     (s4_valid, s4_req, s4_req.data, s4_req.dtag)
   ).map(r => (r._1 && (s1_addr >> wordOffBits === r._2.addr >> wordOffBits) && isWrite(r._2.cmd), Cat(r._3, r._4)))
@@ -1123,11 +1124,11 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   amoalu.io.rhs := s2_req.data
 
   // tag related operations in D$
-  val s2_tag_check =
+  s2_tag_xcpt :=
     ((io.cpu.tag_ctrl.maskLoadChck & s2_dtag_word) =/= UInt(0) && isRead(mshrs.io.replay.bits.cmd)) ||
     ((io.cpu.tag_ctrl.maskStoreChck & s2_dtag_word) =/= UInt(0) && isWrite(mshrs.io.replay.bits.cmd))
 
-  io.cpu.tag_xcpt := (s2_valid_masked && s2_hit || s2_replay) && !s2_tag_check
+  io.cpu.tag_xcpt := (s2_valid_masked && s2_hit || s2_replay) && s2_tag_xcpt
   io.cpu.tag_replay := mshrs.io.replay.valid && readArb.io.in(1).ready && tag_replay
 
   // nack it like it's hot

@@ -169,7 +169,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_medeleg = Reg(init=UInt(0, xLen))
   val reg_mip = Reg(new MIP)
   val reg_mepc = Reg(UInt(width = vaddrBitsExtended))
-  val reg_mepc_tag = Reg(UInt(width = tgBits))
+  val reg_mepc_tag = Reg(init=UInt(0, tgBits))
   val reg_mcause = Reg(Bits(width = xLen))
   val reg_mbadaddr = Reg(UInt(width = vaddrBitsExtended))
   val reg_mscratch = Reg(Bits(width = xLen))
@@ -178,7 +178,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_mtvec_tag = Reg(init=UInt(0, tgBits))
 
   val reg_sepc = Reg(UInt(width = vaddrBitsExtended))
-  val reg_sepc_tag = Reg(UInt(width = tgBits))
+  val reg_sepc_tag = Reg(init=UInt(0, tgBits))
   val reg_scause = Reg(Bits(width = xLen))
   val reg_sbadaddr = Reg(UInt(width = vaddrBitsExtended))
   val reg_sscratch = Reg(Bits(width = xLen))
@@ -195,7 +195,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_instret = WideCounter(64, io.retire)
   val reg_cycle: UInt = if (enableCommitLog) { reg_instret } else { WideCounter(64) }
 
-  val reg_tag_ctrl = Reg(Bits(width = xLen))
+  val reg_tag_ctrl = Reg(init=UInt(0, xLen))
 
   val mip = Wire(init=reg_mip)
   mip.irq := io.irq
@@ -282,7 +282,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_mapping += CSRs.msinstret_delta -> (UInt(0),               UInt(0)           )
   }
 
-  if (usingTagMem) {
+  if (useTagMem) {
     read_mapping += CSRs.tagctrl ->   (reg_tag_ctrl,                UInt(0)           )
   }
 
@@ -499,7 +499,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata & delegable_interrupts }
       when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata & delegable_exceptions }
     }
-    if (usingTagMem) {
+    if (useTagMem) {
       when (decoded_addr(CSRs.tagctrl))  { reg_tag_ctrl := wdata }
     }
   }
@@ -510,7 +510,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csr.wdata := wdata
   io.rocc.csr.wen := wen
 
-  if (usingTagMem) {
+  if (useTagMem) {
     io.tag_ctrl := new TagCtrlSig().fromBits(reg_tag_ctrl)
+  } else {
+    io.tag_ctrl := new TagCtrlSig().fromBits(UInt(0,xLen))
   }
 }

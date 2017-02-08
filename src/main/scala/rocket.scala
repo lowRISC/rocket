@@ -36,7 +36,6 @@ trait HasCoreParameters extends HasAddrMapParameters with HasTagParameters {
   val usingFPU = p(UseFPU)
   val usingFDivSqrt = p(FDivSqrt)
   val usingRoCC = !p(BuildRoCC).isEmpty
-  val usingTagMem = p(UseTagMem)
   val usingFastMulDiv = p(FastMulDiv)
   val fastLoadWord = p(FastLoadWord)
   val fastLoadByte = p(FastLoadByte)
@@ -266,7 +265,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_none_tag_op = !(ex_ctrl.tagr || ex_ctrl.tagw)
   val mem_none_tag_op = !(mem_ctrl.tagr || mem_ctrl.tagw)
   val bypass_sources =
-    if (usingTagMem) {
+    if (useTagMem) {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
         (ex_reg_valid && ex_ctrl.wxd && ex_none_tag_op, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
@@ -304,8 +303,10 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_op1_tag = Mux(ex_ctrl.sel_alu1 === A1_RS1, ex_rs_tag(0), UInt(0))
   val ex_op2_tag = Mux(ex_ctrl.sel_alu2 === A2_RS2, ex_rs_tag(1), UInt(0))
   val ex_alu_tag =
-    if (usingTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALU
-    else             UInt(0)
+    if (useTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALU
+    else           UInt(0)
+  val ex_jalr_tag_xcpt = if (useTagMem) ex_ctrl.jalr && (ex_rs_tag(0) & csr.io.tag_ctrl.maskJmpChck) === UInt(0)
+                         else Bool(false)
 
   val alu = Module(new ALU)
   alu.io.dw := ex_ctrl.alu_dw
@@ -369,7 +370,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
   val (ex_xcpt, ex_cause) = checkExceptions(List(
     (ex_reg_xcpt_interrupt || ex_reg_xcpt, ex_reg_cause),
-    (ex_ctrl.fp && io.fpu.illegal_rm,      UInt(Causes.illegal_instruction))))
+    (ex_ctrl.fp && io.fpu.illegal_rm,      UInt(Causes.illegal_instruction)),
+    (ex_jalr_tag_xcpt,                     UInt(Causes.tag_check_failure))))
   io.dmem.ex_xcpt := ex_xcpt // when core pipeline has an outstanding exception, no tagged replay in D$ is allowed
 
   // memory stage
@@ -529,8 +531,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   io.fpu.fcsr_rm := csr.io.fcsr_rm
   csr.io.fcsr_flags := io.fpu.fcsr_flags
   csr.io.rocc <> io.rocc
-  csr.io.pc := Mux(wb_reg_xcpt, wb_reg_pc, io.dmem.resp.bits.pc)
-  csr.io.pc_tag := Mux(wb_reg_xcpt, wb_reg_pc_tag, UInt(0))
+  csr.io.pc := Mux(io.dmem.tag_xcpt, io.dmem.resp.bits.pc, wb_reg_pc)
+  csr.io.pc_tag := Mux(io.dmem.tag_xcpt, UInt(0), wb_reg_pc_tag)
   csr.io.uarch_counters.foreach(_ := Bool(false))
   io.ptw.ptbr := csr.io.ptbr
   io.ptw.invalidate := csr.io.fatc
@@ -538,6 +540,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   csr.io.rw.addr := wb_reg_inst(31,20)
   csr.io.rw.cmd := Mux(wb_reg_valid, wb_ctrl.csr, CSR.N)
   csr.io.rw.wdata := wb_reg_wdata
+  csr.io.rw.wtag  := wb_reg_wtag
 
   val hazard_targets = Seq((id_ctrl.rxs1 && id_raddr1 =/= UInt(0), id_raddr1),
                            (id_ctrl.rxs2 && id_raddr2 =/= UInt(0), id_raddr2),
