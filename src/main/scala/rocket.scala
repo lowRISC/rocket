@@ -146,6 +146,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   if (usingFPU) decode_table ++= new FDecode().table
   if (usingFPU && usingFDivSqrt) decode_table ++= new FDivSqrtDecode().table
   if (usingRoCC) decode_table ++= new RoCCDecode().table
+  if (useTagMem) decode_table ++= new TagDecode().table
 
   val ex_ctrl = Reg(new IntCtrlSigs)
   val mem_ctrl = Reg(new IntCtrlSigs)
@@ -218,6 +219,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val rf = new RegFile(31, xLen, tgBits)
   val id_rs = id_raddr.map(rf.read_data _)
   val id_rs_tag = id_raddr.map(rf.read_tag  _)
+  val id_rd = rf.read_data(id_waddr)
   val ctrl_killd = Wire(Bool())
 
   val csr = Module(new CSRFile(id))
@@ -262,15 +264,13 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_waddr = ex_reg_inst(11,7)
   val mem_waddr = mem_reg_inst(11,7)
   val wb_waddr = wb_reg_inst(11,7)
-  val ex_none_tag_op = !(ex_ctrl.tagr || ex_ctrl.tagw)
-  val mem_none_tag_op = !(mem_ctrl.tagr || mem_ctrl.tagw)
   val bypass_sources =
     if (useTagMem) {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
-        (ex_reg_valid && ex_ctrl.wxd && ex_none_tag_op, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
-        (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem && mem_none_tag_op, mem_waddr, wb_reg_wdata, wb_reg_wtag),
-        (mem_reg_valid && mem_ctrl.wxd && mem_ctrl.mem, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.dtag))
+        (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
+        (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
+        (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.dtag))
     } else {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
@@ -278,19 +278,25 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
         (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, UInt(0)),
         (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, UInt(0)))
     }
-  val id_bypass_src = id_raddr.map(raddr => bypass_sources.map(s => s._1 && s._2 === raddr))
+  val id_rs_bypass_src = id_raddr.map(raddr => bypass_sources.map(s => s._1 && s._2 === raddr))
+  val id_rd_bypass_src = bypass_sources.map(s => s._1 && s._2 === id_waddr)
 
   // execute stage
-  val bypass_mux_reg = Vec(bypass_sources.map(_._3))
-  val bypass_mux_tag = Vec(bypass_sources.map(_._4))
+  val bypass_rs_mux_reg = Vec(bypass_sources.map(_._3))
+  val bypass_rs_mux_tag = Vec(bypass_sources.map(_._4))
+  val bypass_rd_mux_reg = bypass_sources.map(_._3)
   val ex_reg_rs_bypass = Reg(Vec(id_raddr.size, Bool()))
+  val ex_reg_rd_bypass = Reg(Bool())
   val ex_reg_rs_lsb = Reg(Vec(id_raddr.size, UInt()))
   val ex_reg_rs_msb = Reg(Vec(id_raddr.size, UInt()))
   val ex_reg_rs_tag = Reg(Vec(id_raddr.size, UInt()))
+  val ex_reg_rd_lsb = Reg(UInt())
+  val ex_reg_rd_msb = Reg(UInt())
   val ex_rs = for (i <- 0 until id_raddr.size)
-    yield Mux(ex_reg_rs_bypass(i), bypass_mux_reg(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
+    yield Mux(ex_reg_rs_bypass(i), bypass_rs_mux_reg(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
   val ex_rs_tag = for (i <- 0 until id_raddr.size)
-    yield Mux(ex_reg_rs_bypass(i), bypass_mux_tag(ex_reg_rs_lsb(i)), ex_reg_rs_tag(i))
+    yield Mux(ex_reg_rs_bypass(i), bypass_rs_mux_tag(ex_reg_rs_lsb(i)), ex_reg_rs_tag(i))
+  val ex_rd = Mux(ex_reg_rd_bypass, bypass_rd_mux_reg(ex_reg_rd_lsb), Cat(ex_reg_rd_msb, ex_reg_rd_lsb))
   val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
   val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
     A1_RS1   -> ex_rs(0).toSInt,
@@ -344,14 +350,25 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     ex_reg_load_use := id_load_use
 
     for (i <- 0 until id_raddr.size) {
-      val do_bypass = id_bypass_src(i).reduce(_||_)
-      val bypass_src = PriorityEncoder(id_bypass_src(i))
+      val do_bypass = id_rs_bypass_src(i).reduce(_||_)
+      val bypass_src = PriorityEncoder(id_rs_bypass_src(i))
       ex_reg_rs_bypass(i) := do_bypass
       ex_reg_rs_lsb(i) := bypass_src
       when (id_ren(i) && !do_bypass) {
         ex_reg_rs_lsb(i) := id_rs(i)(bypass_src.getWidth-1,0)
         ex_reg_rs_msb(i) := id_rs(i) >> bypass_src.getWidth
         ex_reg_rs_tag(i) := id_rs_tag(i)
+      }
+    }
+
+    {
+      val do_bypass = id_rd_bypass_src.reduce(_||_)
+      val bypass_src = PriorityEncoder(id_rd_bypass_src)
+      ex_reg_rd_bypass := do_bypass
+      ex_reg_rd_lsb := bypass_src
+      when (id_ctrl.wxd && !do_bypass) {
+        ex_reg_rd_lsb := id_rd(bypass_src.getWidth-1,0)
+        ex_reg_rd_msb := id_rd >> bypass_src.getWidth
       }
     }
   }
@@ -415,8 +432,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     mem_reg_inst_tag := ex_reg_inst_tag
     mem_reg_pc := ex_reg_pc
     mem_reg_pc_tag := ex_reg_pc_tag
-    mem_reg_wdata := alu.io.out
-    mem_reg_wtag := ex_alu_tag
+    mem_reg_wdata := Mux(ex_ctrl.tagr, ex_rs_tag(0), Mux(ex_ctrl.tagw, ex_rd, alu.io.out))
+    mem_reg_wtag := Mux(ex_ctrl.tagr, UInt(0), Mux(ex_ctrl.tagw, ex_rs(0)(tgBits-1,0), ex_alu_tag))
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
       mem_reg_rs2     := ex_rs(1)
       mem_reg_rs2_tag := ex_rs_tag(1)
@@ -508,12 +525,8 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val rf_wdata = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data,
                  Mux(ll_wen, ll_wdata,
                  Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
-                 Mux(wb_ctrl.tagr, wb_reg_wtag,
-                 wb_reg_wdata))))
-  val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.dtag,
-                 Mux(wb_ctrl.tagw, wb_reg_wdata(tgBits-1,0),
-                 Mux(wb_ctrl.tagr, UInt(0), // set tag to 0 for TAGR
-                 wb_reg_wtag)))
+                 wb_reg_wdata)))
+  val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.dtag, wb_reg_wtag)
 
   val wb_pc_tag_xcpt = wb_reg_valid &&
                        wb_reg_pc_tag(tgInstBits-1,0) =/= UInt(0) &&
