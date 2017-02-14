@@ -83,6 +83,7 @@ class TagCtrlSig(implicit p: Parameters) extends CoreBundle {
   val maskLoadProp            = Bits(width = tgBits)
   val maskStoreChck           = Bits(width = tgBits)
   val maskStoreProp           = Bits(width = tgBits)
+  val maskStoreKeep           = Bits(width = tgBits)
   val maskCFlowDirBranchTgt   = Bits(width = tgInstBits)
   val maskCFlowIndirBranchTgt = Bits(width = tgInstBits)
   val maskJmpChck             = Bits(width = tgBits)

@@ -997,7 +997,6 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
   // tag related checking and update signals
   val s2_wtag = Wire(UInt(width=tgBits)) // the tag to be written
-  s2_wtag := s2_req.dtag & io.cpu.tag_ctrl.maskStoreProp
 
   // store/amo hits
   s3_valid := (s2_valid_masked && s2_hit || s2_replay) && !s2_sc_fail && isWrite(s2_req.cmd) && !s2_tag_xcpt
@@ -1124,6 +1123,9 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   amoalu.io.rhs := s2_req.data
 
   // tag related operations in D$
+  s2_wtag := (s2_req.dtag & io.cpu.tag_ctrl.maskStoreProp & ~io.cpu.tag_ctrl.maskStoreKeep) |
+             (s2_dtag_word & io.cpu.tag_ctrl.maskStoreKeep)
+
   s2_tag_xcpt :=
     ((io.cpu.tag_ctrl.maskLoadChck & s2_dtag_word) =/= UInt(0) && isRead(mshrs.io.replay.bits.cmd)) ||
     ((io.cpu.tag_ctrl.maskStoreChck & s2_dtag_word) =/= UInt(0) && isWrite(mshrs.io.replay.bits.cmd))
