@@ -72,7 +72,7 @@ abstract class CoreBundle(implicit val p: Parameters) extends ParameterizedBundl
 
 class RegFile(n: Int, w: Int, t:Int, zero: Boolean = false) {
   private val data = Mem(n, UInt(width = w))
-  private val tag  = Mem(n, UInt(width = t))
+  private val tag  = Reg(init=Vec.fill(n)(UInt(0,t)))
   private def access_data(addr: UInt) = data(~addr(log2Up(n)-1,0))
   private def access_tag(addr: UInt)  = tag(~addr(log2Up(n)-1,0))
   private val data_reads = collection.mutable.ArrayBuffer[(UInt,UInt)]()
