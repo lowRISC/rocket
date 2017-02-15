@@ -78,17 +78,17 @@ object CSR
 }
 
 class TagCtrlSig(implicit p: Parameters) extends CoreBundle {
-  val maskALU                 = Bits(width = tgBits)
-  val maskLoadChck            = Bits(width = tgBits)
-  val maskLoadProp            = Bits(width = tgBits)
-  val maskStoreChck           = Bits(width = tgBits)
-  val maskStoreProp           = Bits(width = tgBits)
-  val maskStoreKeep           = Bits(width = tgBits)
-  val maskCFlowDirBranchTgt   = Bits(width = tgInstBits)
-  val maskCFlowIndirBranchTgt = Bits(width = tgInstBits)
-  val maskJmpChck             = Bits(width = tgBits)
-  val maskJmpProp             = Bits(width = tgBits)
   val maskFetchChck           = Bits(width = tgInstBits)
+  val maskJmpProp             = Bits(width = tgBits)
+  val maskJmpChck             = Bits(width = tgBits)
+  val maskCFlowIndirBranchTgt = Bits(width = tgInstBits)
+  val maskCFlowDirBranchTgt   = Bits(width = tgInstBits)
+  val maskStoreKeep           = Bits(width = tgBits)
+  val maskStoreProp           = Bits(width = tgBits)
+  val maskStoreChck           = Bits(width = tgBits)
+  val maskLoadProp            = Bits(width = tgBits)
+  val maskLoadChck            = Bits(width = tgBits)
+  val maskALU                 = Bits(width = tgBits)
 }
 
 class CSRFileIO(implicit p: Parameters) extends CoreBundle {
