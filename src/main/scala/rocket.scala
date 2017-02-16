@@ -665,6 +665,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   io.dmem.req.bits.typ  := ex_ctrl.mem_type
   io.dmem.req.bits.phys := Bool(false)
   io.dmem.req.bits.addr := encodeVirtualAddress(ex_rs(0), alu.io.adder_out)
+  io.dmem.req.bits.pc   := ex_reg_pc
   io.dmem.s1_kill := killm_common || mem_xcpt
   io.dmem.s1_data := Mux(mem_ctrl.fp, io.fpu.store_data, mem_reg_rs2)
   io.dmem.s1_dtag := Mux(mem_ctrl.fp, UInt(0),           mem_reg_rs2_tag)

@@ -51,12 +51,17 @@ trait HasCoreMemOp extends HasCoreParameters {
   val tag  = Bits(width = coreDCacheReqTagBits)
   val cmd  = Bits(width = M_SZ)
   val typ  = Bits(width = MT_SZ)
+  val pc   = Bits(width = vaddrBitsExtended)
 }
 
 trait HasCoreData extends HasCoreParameters {
   val data = Bits(width = coreDataBits)
   val dtag = Bits(width = tgBits)
-  val pc   = Bits(width = vaddrBitsExtended)
+}
+
+class HellaCacheReqData(implicit p: Parameters) extends L1HellaCacheBundle()(p)
+    with HasCoreData {
+  override def cloneType = new HellaCacheReqData()(p).asInstanceOf[this.type]
 }
 
 trait HasSDQId extends HasL1HellaCacheParameters {
@@ -442,8 +447,11 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val sdq_alloc_id = PriorityEncoder(~sdq_val(sdqDepth-1,0))
   val sdq_rdy = !sdq_val.andR
   val sdq_enq = io.req.valid && io.req.ready && cacheable && isWrite(io.req.bits.cmd)
-  val sdq = Mem(sdqDepth, io.req.bits.data)
-  when (sdq_enq) { sdq(sdq_alloc_id) := io.req.bits.data }
+  val sdq = Reg(Vec(sdqDepth, new HellaCacheReqData))
+//  val sdq = Mem(sdqDepth, io.req.bits.data)
+  when (sdq_enq) {
+    sdq(sdq_alloc_id) := io.req.bits
+  }
 
   val idxMatch = Wire(Vec(nMSHRs, Bool()))
   val tagList = Wire(Vec(nMSHRs, Bits(width = tagBits)))
@@ -550,7 +558,7 @@ class MSHRFile(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   io.refill := refillMux(io.mem_grant.bits.client_xact_id)
 
   val free_sdq = io.replay.fire() && isWrite(io.replay.bits.cmd)
-  io.replay.bits.data := sdq(RegEnable(replay_arb.io.out.bits.sdq_id, free_sdq))
+  io.replay.bits := sdq(RegEnable(replay_arb.io.out.bits.sdq_id, free_sdq))
   io.replay <> replay_arb.io.out
 
   when (io.replay.valid || sdq_enq) {
@@ -874,20 +882,10 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val s1_addr = Cat(dtlb.io.resp.ppn, s1_req.addr(pgIdxBits-1,0))
 
   when (s1_clk_en) {
-    s2_req.typ := s1_req.typ
-    s2_req.phys := s1_req.phys
-    s2_req.addr := s1_addr
-    when (s1_write) {
+    s2_req := s1_req
+    when (!s1_recycled && s1_write) {
       s2_req.data := Mux(s1_replay, mshrs.io.replay.bits.data, io.cpu.s1_data)
-    }
-    s2_req.dtag := Mux(s1_replay, mshrs.io.replay.bits.dtag, io.cpu.s1_dtag)
-    when (s1_recycled) { s2_req.data := s1_req.data }
-    s2_req.tag := s1_req.tag
-    s2_req.cmd := s1_req.cmd
-    if(useTagMem) {
-      when(s1_replay) {
-        s2_req.pc       := mshrs.io.replay.bits.pc
-      }
+      s2_req.dtag := Mux(s1_replay, mshrs.io.replay.bits.dtag, io.cpu.s1_dtag)
     }
   }
 
