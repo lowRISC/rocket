@@ -204,7 +204,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
 
   // decode stage
   val id_pc = io.imem.resp.bits.pc
-  val id_pc_tag = io.imem.resp.bits.pc
+  val id_pc_tag = io.imem.resp.bits.pc_tag
   val id_inst = io.imem.resp.bits.data(0).toBits; require(fetchWidth == 1)
   val id_inst_tag = io.imem.resp.bits.tag(0).toBits; require(fetchWidth == 1)
   val id_ctrl = Wire(new IntCtrlSigs()).decode(id_inst, decode_table)
