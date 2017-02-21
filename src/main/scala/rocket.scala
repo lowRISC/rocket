@@ -192,11 +192,9 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val wb_reg_pc              = Reg(UInt())
   val wb_reg_pc_tag          = Reg(UInt(width=tgBits)) // chisel fails to auto size
   val wb_reg_inst            = Reg(Bits())
-  val wb_reg_inst_tag        = Reg(Bits())
   val wb_reg_wdata           = Reg(Bits())
   val wb_reg_wtag            = Reg(Bits())
   val wb_reg_rs2             = Reg(Bits())
-  val tag_xcpt               = Wire(Bool())
   val take_pc_wb             = Wire(Bool())
 
   val take_pc_mem_wb = take_pc_wb || take_pc_mem
@@ -259,6 +257,10 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     if (fastLoadByte) io.dmem.resp.bits.data
     else if (fastLoadWord) io.dmem.resp.bits.data_word_bypass
     else wb_reg_wdata
+  val dcache_bypass_dtag =
+    if (fastLoadByte) io.dmem.resp.bits.dtag
+    else if (fastLoadWord) io.dmem.resp.bits.dtag
+    else wb_reg_wtag
 
   // detect bypass opportunities
   val ex_waddr = ex_reg_inst(11,7)
@@ -270,7 +272,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
         (ex_reg_valid && ex_ctrl.wxd, ex_waddr, mem_reg_wdata, mem_reg_wtag), // this condition needed to be interrogated
         (mem_reg_valid && mem_ctrl.wxd && !mem_ctrl.mem, mem_waddr, wb_reg_wdata, wb_reg_wtag),
-        (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, io.dmem.resp.bits.dtag))
+        (mem_reg_valid && mem_ctrl.wxd, mem_waddr, dcache_bypass_data, dcache_bypass_dtag))
     } else {
       IndexedSeq(
         (Bool(true), UInt(0), UInt(0), UInt(0)), // treat reading x0 as a bypass
@@ -339,6 +341,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   ex_reg_valid := !ctrl_killd
   ex_reg_xcpt := !ctrl_killd && id_xcpt
   ex_reg_xcpt_interrupt := csr.io.interrupt && !take_pc && io.imem.resp.valid
+  ex_reg_pc_tag := UInt(0)
   when (id_xcpt) { ex_reg_cause := id_cause }
 
   when (!ctrl_killd) {
@@ -419,6 +422,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   mem_reg_replay := !take_pc_mem_wb && replay_ex
   mem_reg_xcpt := !ctrl_killx && ex_xcpt
   mem_reg_xcpt_interrupt := !take_pc_mem_wb && ex_reg_xcpt_interrupt
+  mem_reg_pc_tag := UInt(0) // always clean up pc tag after use
   when (ex_xcpt) { mem_reg_cause := ex_cause }
 
   when (ex_reg_valid || ex_reg_xcpt_interrupt) {
@@ -470,6 +474,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   wb_reg_valid := !ctrl_killm
   wb_reg_replay := replay_mem && !take_pc_wb
   wb_reg_xcpt := mem_xcpt && !take_pc_wb
+  wb_reg_pc_tag := UInt(0)
   when (mem_xcpt) { wb_reg_cause := mem_cause }
   when (mem_reg_valid || mem_reg_replay || mem_reg_xcpt_interrupt) {
     wb_ctrl := mem_ctrl
@@ -479,7 +484,6 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
       wb_reg_rs2 := mem_reg_rs2
     }
     wb_reg_inst := mem_reg_inst
-    wb_reg_inst_tag := mem_reg_inst
     wb_reg_pc := mem_reg_pc
     wb_reg_pc_tag := mem_reg_pc_tag
   }
@@ -488,7 +492,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val replay_wb_common = io.dmem.s2_nack || wb_reg_replay
   val wb_rocc_val = wb_reg_valid && wb_ctrl.rocc && !replay_wb_common
   val replay_wb = replay_wb_common || wb_reg_valid && wb_ctrl.rocc && !io.rocc.cmd.ready
-  val wb_xcpt = wb_reg_xcpt || tag_xcpt || csr.io.csr_xcpt
+  val wb_xcpt = wb_reg_xcpt || io.dmem.tag_xcpt || csr.io.csr_xcpt
   take_pc_wb := replay_wb || wb_xcpt || csr.io.eret
 
   when (wb_rocc_val) { wb_reg_rocc_pending := !io.rocc.cmd.ready }
@@ -532,20 +536,13 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                  wb_reg_wdata)))
   val rf_wtag  = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.dtag, wb_reg_wtag)
 
-  val wb_pc_tag_xcpt = wb_reg_valid &&
-                       wb_reg_pc_tag(tgInstBits-1,0) =/= UInt(0) &&
-                       (wb_reg_pc_tag(tgInstBits-1,0) & wb_reg_inst_tag) =/= UInt(0)
-
   when (rf_wen) {
-    when(!wb_ctrl.tagw) { rf.write_data(rf_waddr, rf_wdata) }  // do not update reg when TAGW
+    rf.write_data(rf_waddr, rf_wdata)
     rf.write_tag(rf_waddr, rf_wtag)
   }
 
-  // tagged memory support
-  tag_xcpt := wb_pc_tag_xcpt || io.dmem.tag_xcpt
-
   // hook up control/status regfile
-  csr.io.exception := wb_reg_xcpt || tag_xcpt
+  csr.io.exception := wb_reg_xcpt || io.dmem.tag_xcpt
   csr.io.cause := Mux(wb_reg_xcpt, wb_reg_cause, Causes.tag_check_failure)
   csr.io.retire := wb_valid
   csr.io.irq <> io.irq
