@@ -883,6 +883,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
 
   when (s1_clk_en) {
     s2_req := s1_req
+    s2_req.addr := s1_addr
     when (!s1_recycled && s1_write) {
       s2_req.data := Mux(s1_replay, mshrs.io.replay.bits.data, io.cpu.s1_data)
       s2_req.dtag := Mux(s1_replay, mshrs.io.replay.bits.dtag, io.cpu.s1_dtag)
