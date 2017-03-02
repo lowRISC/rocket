@@ -1126,8 +1126,8 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
              (s2_dtag_word & io.cpu.tag_ctrl.maskStoreKeep)
 
   s2_tag_xcpt :=
-    ((io.cpu.tag_ctrl.maskLoadChck & s2_dtag_word) =/= UInt(0) && isRead(mshrs.io.replay.bits.cmd)) ||
-    ((io.cpu.tag_ctrl.maskStoreChck & s2_dtag_word) =/= UInt(0) && isWrite(mshrs.io.replay.bits.cmd))
+    ((io.cpu.tag_ctrl.maskLoadChck & s2_dtag_word) =/= UInt(0) && isRead(s2_req.cmd)) ||
+    ((io.cpu.tag_ctrl.maskStoreChck & s2_dtag_word) =/= UInt(0) && isWrite(s2_req.cmd))
 
   io.cpu.tag_xcpt := (s2_valid_masked && s2_hit || s2_replay) && s2_tag_xcpt
   io.cpu.tag_replay := mshrs.io.replay.valid && readArb.io.in(1).ready && tag_replay
