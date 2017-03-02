@@ -311,8 +311,13 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val ex_op1_tag = Mux(ex_ctrl.sel_alu1 === A1_RS1, ex_rs_tag(0), UInt(0))
   val ex_op2_tag = Mux(ex_ctrl.sel_alu2 === A2_RS2, ex_rs_tag(1), UInt(0))
   val ex_alu_tag =
-    if (useTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALU
+    if (useTagMem) (ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALUProp
     else           UInt(0)
+  val ex_alu_tag_xcpt =
+    if (useTagMem) {
+      ((ex_op1_tag | ex_op2_tag) & csr.io.tag_ctrl.maskALUChck) =/= UInt(0)
+    }
+    else Bool(false)
   val ex_jalr_tag_xcpt =
     if (useTagMem) {
       ex_ctrl.jalr &&
@@ -396,7 +401,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val (ex_xcpt, ex_cause) = checkExceptions(List(
     (ex_reg_xcpt_interrupt || ex_reg_xcpt, ex_reg_cause),
     (ex_ctrl.fp && io.fpu.illegal_rm,      UInt(Causes.illegal_instruction)),
-    (ex_jalr_tag_xcpt,                     UInt(Causes.tag_check_failure))))
+    (ex_jalr_tag_xcpt || ex_alu_tag_xcpt,  UInt(Causes.tag_check_failure))))
   io.dmem.ex_xcpt := ex_xcpt // when core pipeline has an outstanding exception, no tagged replay in D$ is allowed
 
   // memory stage
