@@ -531,7 +531,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     ll_wen := Bool(true)
   }
 
-  val wb_valid = wb_reg_valid && !replay_wb && !csr.io.csr_xcpt
+  val wb_valid = wb_reg_valid && !replay_wb && !wb_xcpt
   val wb_wen = wb_valid && wb_ctrl.wxd
   val rf_wen = wb_wen || ll_wen 
   val rf_waddr = Mux(ll_wen, ll_waddr, wb_waddr)
