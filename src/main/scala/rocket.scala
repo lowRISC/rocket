@@ -507,8 +507,9 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
   val dmem_resp_xpu = !io.dmem.resp.bits.tag(0).toBool
   val dmem_resp_fpu =  io.dmem.resp.bits.tag(0).toBool
   val dmem_resp_waddr = io.dmem.resp.bits.tag >> 1
-  val dmem_resp_valid = io.dmem.resp.valid && io.dmem.resp.bits.has_data && !io.dmem.tag_xcpt
+  val dmem_resp_valid = io.dmem.resp.valid && io.dmem.resp.bits.has_data
   val dmem_resp_replay = dmem_resp_valid && io.dmem.resp.bits.replay
+  val dmem_load_replay_excpted = dmem_resp_valid && io.dmem.resp.bits.replay && dmem_resp_xpu && io.dmem.tag_xcpt
 
   div.io.resp.ready := !(wb_reg_valid && wb_ctrl.wxd)
   val ll_wdata = Wire(init = div.io.resp.bits.data)
@@ -528,12 +529,12 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     if (usingRoCC)
       io.rocc.resp.ready := Bool(false)
     ll_waddr := dmem_resp_waddr
-    ll_wen := Bool(true)
+    ll_wen :=  !io.dmem.tag_xcpt
   }
 
   val wb_valid = wb_reg_valid && !replay_wb && !wb_xcpt
   val wb_wen = wb_valid && wb_ctrl.wxd
-  val rf_wen = wb_wen || ll_wen 
+  val rf_wen = wb_wen && !wb_set_sboard || ll_wen
   val rf_waddr = Mux(ll_wen, ll_waddr, wb_waddr)
   val rf_wdata = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data,
                  Mux(ll_wen, ll_wdata,
@@ -575,7 +576,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
                               (io.fpu.dec.wen, id_waddr))
 
   val sboard = new Scoreboard(32)
-  sboard.clear(ll_wen, ll_waddr)
+  sboard.clear(ll_wen || dmem_load_replay_excpted, ll_waddr) // drop excepted load from score board
   val id_sboard_hazard = checkHazards(hazard_targets, sboard.readBypassed _)
   sboard.set(wb_set_sboard && wb_wen, wb_waddr)
 
