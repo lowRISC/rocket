@@ -1122,7 +1122,7 @@ class HellaCache(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   amoalu.io.rhs := s2_req.data
 
   // tag related operations in D$
-  s2_wtag := (s2_req.dtag & io.cpu.tag_ctrl.maskStoreProp & ~io.cpu.tag_ctrl.maskStoreKeep) |
+  s2_wtag := (s2_req.dtag & io.cpu.tag_ctrl.maskStoreProp) |
              (s2_dtag_word & io.cpu.tag_ctrl.maskStoreKeep)
 
   s2_tag_xcpt :=
