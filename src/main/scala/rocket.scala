@@ -410,8 +410,7 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     Mux(mem_ctrl.branch && mem_br_taken, ImmGen(IMM_SB, mem_reg_inst),
     Mux(mem_ctrl.jal, ImmGen(IMM_UJ, mem_reg_inst), SInt(4)))
   val mem_int_wdata = Mux(mem_ctrl.jalr, mem_br_target, mem_reg_wdata.toSInt).toUInt
-  val mem_int_wtag  = Mux(mem_ctrl.jalr||mem_ctrl.jal, csr.io.tag_ctrl.maskJmpProp,
-                                                       mem_reg_wtag)
+  val mem_int_wtag  = mem_reg_wtag
   val mem_npc = (Mux(mem_ctrl.jalr, encodeVirtualAddress(mem_reg_wdata, mem_reg_wdata).toSInt, mem_br_target) & SInt(-2)).toUInt
   val mem_wrong_npc = mem_npc =/= ex_reg_pc || !ex_reg_valid
   val mem_npc_misaligned = mem_npc(1)
@@ -442,7 +441,10 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
     mem_reg_pc := ex_reg_pc
     mem_reg_pc_tag := ex_reg_pc_tag
     mem_reg_wdata := Mux(ex_ctrl.tagr, ex_rs_tag(0), Mux(ex_ctrl.tagw, ex_rd, alu.io.out))
-    mem_reg_wtag := Mux(ex_ctrl.tagr, UInt(0), Mux(ex_ctrl.tagw, ex_rs(0)(tgBits-1,0), ex_alu_tag))
+    mem_reg_wtag := Mux(ex_ctrl.jalr||ex_ctrl.jal,   csr.io.tag_ctrl.maskJmpProp,
+                    Mux(ex_ctrl.tagr,                UInt(0),
+                    Mux(ex_ctrl.tagw,                ex_rs(0)(tgBits-1,0),
+                                                     ex_alu_tag)))
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc)) {
       mem_reg_rs2     := ex_rs(1)
       mem_reg_rs2_tag := ex_rs_tag(1)
