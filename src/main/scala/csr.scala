@@ -165,7 +165,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     Causes.breakpoint,
     Causes.fault_load,
     Causes.fault_store,
-    Causes.user_ecall).map(1 << _).sum)
+    Causes.user_ecall,
+    Causes.tag_check_failure).map(1 << _).sum)
 
   val reg_mie = Reg(init=UInt(0, xLen))
   val reg_mideleg = Reg(init=UInt(0, xLen))
