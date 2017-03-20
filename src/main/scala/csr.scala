@@ -252,6 +252,12 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_mapping += CSRs.msinstret_delta -> UInt(0)
   }
 
+  if (usingVM) {  // should be usingUser
+    read_mapping += CSRs.cycle -> reg_cycle
+    read_mapping += CSRs.time -> reg_cycle   // should be a memory mapped register mtime
+    read_mapping += CSRs.instret -> reg_instret
+  }
+
   if (xLen == 32) {
     read_mapping += CSRs.mcycleh -> (reg_cycle >> 32)
     read_mapping += CSRs.minstreth -> (reg_instret >> 32)
