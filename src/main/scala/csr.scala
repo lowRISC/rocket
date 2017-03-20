@@ -180,8 +180,8 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_mscratch_tag = Reg(Bits(width = tgBits))
   val reg_mtvec = Reg(init=UInt(p(MtvecInit), paddrBits min xLen))
   val reg_mtvec_tag = Reg(init=UInt(0, tgBits))
-  val reg_mucounteren = Reg(UInt(width = 32))
-  val reg_mscounteren = Reg(UInt(width = 32))
+  val reg_mucounteren = Reg(init=UInt(0, 32))
+  val reg_mscounteren = Reg(UInt(0, 32))
 
   val reg_sepc = Reg(UInt(width = vaddrBitsExtended))
   val reg_sepc_tag = Reg(init=UInt(0, tgBits))
@@ -287,6 +287,12 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
     read_mapping += CSRs.mscycle_delta -> (UInt(0),                 UInt(0)           )
     read_mapping += CSRs.msinstret_delta -> (UInt(0),               UInt(0)           )
     read_mapping += CSRs.cycle ->     (reg_cycle,                   UInt(0)           )
+    read_mapping += CSRs.instret ->   (reg_instret,                 UInt(0)           )
+  }
+
+  if (usingVM) {  // should be usingUser
+    read_mapping += CSRs.cycle ->     (reg_cycle,                   UInt(0)           )
+    read_mapping += CSRs.time ->      (reg_cycle,                   UInt(0)           )   // should be a memory mapped register mtime
     read_mapping += CSRs.instret ->   (reg_instret,                 UInt(0)           )
   }
 
