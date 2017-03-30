@@ -719,12 +719,14 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
         printf ("x%d p%d 0x%x\n", rf_waddr, rf_waddr, rf_wdata)
       }
     } else {
-      printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
-        UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc,
-        Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
-        wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
-        wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
-        wb_reg_inst, wb_reg_inst)
+      when (wb_valid || wb_xcpt) {
+        printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
+          UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc,
+          Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
+          wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
+          wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
+          wb_reg_inst, wb_reg_inst)
+      }
     }
   }
 
