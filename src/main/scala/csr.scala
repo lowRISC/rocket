@@ -201,7 +201,9 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   val reg_instret = WideCounter(64, io.retire)
   val reg_cycle = if (enableCommitLog) reg_instret else WideCounter(64)
 
-  val reg_tag_ctrl = Reg(init=UInt(0, xLen))
+  val reg_tagctrl = Reg(init=UInt(0, xLen))
+  val reg_mutagctrlen = Reg(init = ~UInt(0, xLen))
+  val reg_mstagctrlen = Reg(init = ~UInt(0, xLen))
 
   val mip = Wire(init=reg_mip)
   mip.irq := io.irq
@@ -297,7 +299,11 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   }
 
   if (useTagMem) {
-    read_mapping += CSRs.tagctrl ->   (reg_tag_ctrl,                UInt(0)           )
+    read_mapping += CSRs.utagctrl ->  (reg_tagctrl,                 UInt(0)           )
+    read_mapping += CSRs.stagctrl ->  (reg_tagctrl,                 UInt(0)           )
+    read_mapping += CSRs.mtagctrl ->  (reg_tagctrl,                 UInt(0)           )
+    read_mapping += CSRs.mutagctrlen -> (reg_mutagctrlen,           UInt(0)           )
+    read_mapping += CSRs.mstagctrlen -> (reg_mstagctrlen,           UInt(0)           )
   }
 
   if (xLen == 32) {
@@ -525,7 +531,11 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
       when (decoded_addr(CSRs.mucounteren)) { reg_mucounteren := wdata & 7 }
     }
     if (useTagMem) {
-      when (decoded_addr(CSRs.tagctrl))  { reg_tag_ctrl := wdata }
+      when (decoded_addr(CSRs.utagctrl))    { reg_tagctrl := (wdata & reg_mutagctrlen) | (reg_tagctrl & ~reg_mutagctrlen) }
+      when (decoded_addr(CSRs.stagctrl))    { reg_tagctrl := (wdata & reg_mstagctrlen) | (reg_tagctrl & ~reg_mstagctrlen) }
+      when (decoded_addr(CSRs.mtagctrl))    { reg_tagctrl := wdata }
+      when (decoded_addr(CSRs.mutagctrlen)) { reg_mutagctrlen := wdata }
+      when (decoded_addr(CSRs.mstagctrlen)) { reg_mstagctrlen := wdata }
     }
   }
 
@@ -536,7 +546,7 @@ class CSRFile(id:Int)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.csr.wen := wen
 
   if (useTagMem) {
-    io.tag_ctrl := new TagCtrlSig().fromBits(reg_tag_ctrl)
+    io.tag_ctrl := new TagCtrlSig().fromBits(reg_tagctrl)
   } else {
     io.tag_ctrl := new TagCtrlSig().fromBits(UInt(0,xLen))
   }
