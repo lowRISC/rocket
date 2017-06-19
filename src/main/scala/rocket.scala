@@ -720,12 +720,21 @@ class Rocket(id:Int)(implicit p: Parameters) extends CoreModule()(p) {
       }
     } else {
       when (wb_valid || wb_xcpt) {
-        printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
-          UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc,
-          Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
-          wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
-          wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
-          wb_reg_inst, wb_reg_inst)
+        if(p(UseTagMem)) {
+          printf("C%d: %d [%d] pc=[%x,%x] W[r%d=%x,%x][%d] R[r%d=%x,%x] R[r%d=%x,%x] inst=[%x,%x] DASM(%x)\n",
+            UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc, wb_reg_pc_tag,
+            Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wtag, rf_wen,
+            wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))), Reg(next=Reg(next=ex_rs_tag(0))),
+            wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))), Reg(next=Reg(next=ex_rs_tag(1))),
+            wb_reg_inst, Reg(next=mem_reg_inst_tag), wb_reg_inst)
+        } else {
+          printf("C%d: %d [%d] pc=[%x] W[r%d=%x][%d] R[r%d=%x] R[r%d=%x] inst=[%x] DASM(%x)\n",
+            UInt(id), csr.io.time(31,0), wb_valid, wb_reg_pc,
+            Mux(rf_wen, rf_waddr, UInt(0)), rf_wdata, rf_wen,
+            wb_reg_inst(19,15), Reg(next=Reg(next=ex_rs(0))),
+            wb_reg_inst(24,20), Reg(next=Reg(next=ex_rs(1))),
+            wb_reg_inst, wb_reg_inst)
+        }
       }
     }
   }
