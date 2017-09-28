@@ -383,7 +383,7 @@ class MSHR(id: Int)(implicit p: Parameters) extends L1HellaCacheModule()(p) {
   val meta_hazard = Reg(init=UInt(0,2))
   when (meta_hazard =/= UInt(0)) { meta_hazard := meta_hazard + 1 }
   when (io.meta_write.fire()) { meta_hazard := 1 }
-  io.probe_rdy := !idx_match || (!states_before_refill.contains(state) && meta_hazard === 0) 
+  io.probe_rdy := !idx_match || (!states_before_refill.contains(state) && meta_hazard === 0 && state =/= s_meta_write_req)
 
   io.meta_write.valid := state === s_meta_write_req || state === s_meta_clear
   io.meta_write.bits.idx := req_idx
